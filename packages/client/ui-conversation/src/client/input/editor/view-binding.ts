@@ -131,6 +131,8 @@ export function installDraftKeymap(
 ): () => void {
   return registerComposerKeymap(editor, {
     arbitrate: (key, composing) => keyboard.arbitrate(key, composing),
+    isRecallingPrompt: () => keyboard.isRecallingPrompt(),
+    recallPrompt: direction => !gate.current.locked && !gate.current.machineBusy && keyboard.recallPrompt(direction),
     space: () => {
       if (gate.current.machineBusy || gate.current.locked) return false
       return keyboard.space()

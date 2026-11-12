@@ -356,6 +356,24 @@
   display: flex;
 }
 
+.chatgptActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chatgptTitle {
+  margin: 0;
+}
+
+.chatgptActions a {
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  line-height: 22px;
+  text-underline-offset: 2px;
+}
+
 .addButton {
   /* Overrides the shared button base above: this is not a pill sitting in a
      footer but the last slot of the provider list, so it fills the row and
@@ -1040,4 +1058,14 @@ select.input {
   font-size: 13px;
   line-height: 20px;
   text-align: center;
+}
+
+@media (pointer: coarse) {
+  .chatgptInput {
+    font-size: 16px;
+  }
+}
+
+.chatgptAccountLabel {
+  overflow-wrap: anywhere;
 }

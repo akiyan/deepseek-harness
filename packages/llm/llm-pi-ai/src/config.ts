@@ -255,6 +255,8 @@ export interface ResolvedPiAiProviderProfile
 
 /** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
+  /** Offer the independent Sign in with ChatGPT provider and account controls. */
+  chatgpt?: boolean
   /**
    * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
    * the dormant settings-driven posture: the adapter mounts with no routes
@@ -397,6 +399,7 @@ const profile = z.object({
 
 /** Runtime schema for {@link Config}. */
 export const Config = z.object({
+  chatgpt: z.boolean().default(false),
   providers: z.dict(profile).default({}).volatile(),
 })
 
@@ -488,6 +491,7 @@ export function resolveProfiles(
   const entries = Object.entries(providers ?? {})
   const resolved = new Map<string, ResolvedPiAiProviderProfile>()
   for (const [provider, source] of entries) {
+    if (provider === 'chatgpt') throw new Error('llm-pi-ai: chatgpt is reserved for Sign in with ChatGPT; enable chatgpt instead of declaring a provider profile')
     rejectRemovedFields(provider, source)
     if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
     if (source.baseURL !== undefined && source.baseURL.length === 0) {

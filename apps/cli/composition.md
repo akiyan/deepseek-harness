@@ -184,6 +184,8 @@ flowchart LR
   cfg --> plugin_dsh_base_web_search_deepseek
   plugin_dsh_base_web_ollama_api["web-ollama-api<br/>@deepseek-ai/dsh-web-ollama-api"]
   cfg --> plugin_dsh_base_web_ollama_api
+  plugin_dsh_base_web_search_exa["web-search-exa<br/>@deepseek-ai/dsh-web-search-exa"]
+  cfg --> plugin_dsh_base_web_search_exa
   plugin_dsh_base_web_deepseek_api["web-deepseek-api<br/>@deepseek-ai/dsh-web-deepseek-api"]
   cfg --> plugin_dsh_base_web_deepseek_api
   plugin_dsh_base_web_fetch_http["web-fetch-http<br/>@deepseek-ai/dsh-web-fetch-http"]
@@ -300,6 +302,7 @@ flowchart LR
 | `web` | `@deepseek-ai/dsh-web` |
 | `web-search-deepseek` | `@deepseek-ai/dsh-web-search-deepseek` |
 | `web-ollama-api` | `@deepseek-ai/dsh-web-ollama-api` |
+| `web-search-exa` | `@deepseek-ai/dsh-web-search-exa` |
 | `web-deepseek-api` | `@deepseek-ai/dsh-web-deepseek-api` |
 | `web-fetch-http` | `@deepseek-ai/dsh-web-fetch-http` |
 | `tool-web` | `@deepseek-ai/dsh-tool-web` |

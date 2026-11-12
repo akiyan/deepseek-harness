@@ -15,6 +15,8 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
+import { requestChatGPT } from './chatgpt.ts'
+import type { ChatGPTAction, ChatGPTView } from './chatgpt.ts'
 
 /**
  * Any route key walks a dict schema to the same profile node, so the lookup
@@ -102,6 +104,14 @@ export interface ProviderRow {
 
 /** Page snapshot. */
 export interface ModelsSettingsState {
+  /** Whether the current authorization was opened by its initiating user gesture. */
+  chatgptBrowserOpened?: boolean
+  /** Safe ChatGPT state when its provider is mounted. */
+  chatgpt?: ChatGPTView
+  /** Account mutation in progress. */
+  chatgptBusy?: boolean
+  /** Account failure; last known state remains visible. */
+  chatgptError?: string
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** Whole-load failure text; row-level write failures stay in the editor. */
   error: string | null
@@ -185,6 +195,80 @@ function apiKeyEnvOf(
 
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
+  private chatgptPopup: Window | null = null
+  private chatgptTimer: ReturnType<typeof setTimeout> | undefined
+  private chatgptGeneration = 0
+  private chatgptActionFailed = false
+  private readonly chatgptLifetime = new AbortController()
+
+  /** Stop account reads and polling for this page controller. */
+  dispose(): void {
+    this.chatgptPopup?.close()
+    this.chatgptPopup = null
+    this.chatgptLifetime.abort()
+    this.chatgptGeneration++
+    clearTimeout(this.chatgptTimer)
+  }
+
+  /**
+   * Apply an account action; start reserves its browser tab synchronously within the user gesture.
+   * @param action - explicit user account action.
+   * @returns after state refresh.
+   */
+  async chatgptAction(action: ChatGPTAction): Promise<void> {
+    if (this.store.getSnapshot().chatgptBusy) return
+    const popup = action.action === 'start' && typeof globalThis.open === 'function'
+      ? globalThis.open('about:blank', '_blank') : null
+    if (popup !== null) { popup.opener = null; this.chatgptPopup = popup }
+    this.chatgptActionFailed = false
+    this.store.update((state) => {
+      state.chatgptBusy = true
+      delete state.chatgptError
+      if (action.action === 'start') state.chatgptBrowserOpened = false
+    })
+    try {
+      const view = await this.readChatGPT(action)
+      if (popup !== null && !popup.closed) {
+        if (view?.authorizeUrl !== undefined && !this.chatgptLifetime.signal.aborted) {
+          try {
+            popup.location.replace(view.authorizeUrl)
+            this.store.update((state) => { state.chatgptBrowserOpened = true })
+          } catch (_error) {
+            // Closing or blocking the new tab leaves the explicit browser link available.
+            popup.close()
+          }
+        } else popup.close()
+      }
+      this.chatgptPopup = null
+    }
+    finally {
+      this.store.update((state) => { state.chatgptBusy = false })
+      if (!this.chatgptLifetime.signal.aborted) await this.load()
+    }
+  }
+
+  private async readChatGPT(action?: ChatGPTAction): Promise<ChatGPTView | undefined> {
+    clearTimeout(this.chatgptTimer)
+    const generation = ++this.chatgptGeneration
+    try {
+      const view = await requestChatGPT(action, this.chatgptLifetime.signal)
+      if (generation !== this.chatgptGeneration || this.chatgptLifetime.signal.aborted) return undefined
+      const wasPending = this.store.getSnapshot().chatgpt?.pending === true
+      if (action !== undefined) this.chatgptActionFailed = false
+      this.store.update((state) => {
+        state.chatgpt = view
+        if (!this.chatgptActionFailed) delete state.chatgptError
+      })
+      if (view.pending) this.chatgptTimer = setTimeout(() => { void this.readChatGPT() }, 1500)
+      else if (wasPending && action === undefined) void this.load()
+      return view
+    } catch (error) {
+      if (generation !== this.chatgptGeneration || this.chatgptLifetime.signal.aborted) return undefined
+      this.chatgptActionFailed = action !== undefined
+      this.store.update((state) => { state.chatgptError = error instanceof Error ? error.message : 'ChatGPT account request failed.' })
+      return undefined
+    }
+  }
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
     status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
@@ -240,6 +324,8 @@ export class ModelsSettingsStore {
     if (generation !== this.generation) return
     if (!registered.ok) { this.failLoad(registered.error.message); return }
     if (!declared.ok) { this.failLoad(declared.error.message); return }
+    if (registered.value.some(provider => provider.id === 'chatgpt') && !this.store.getSnapshot().chatgptBusy) await this.readChatGPT()
+    if (generation !== this.generation) return
     const mirrored = this.describeFace.getSnapshot()
     if (mirrored.view === undefined) {
       /* v8 ignore next -- SettingsDescribeFace.ensure settles with a view or the read's error */
@@ -273,10 +359,10 @@ export class ModelsSettingsStore {
     const catalog = await this.ctx.remote.session.modelCatalog()
     if (generation !== this.generation) return
     const catalogGroups = catalog.ok ? catalog.value.groups : this.store.getSnapshot().catalogGroups
-    if (rows.some(row => row.entry.provider === 'deepseek-account')) {
+    if (rows.some(row => row.entry.provider === 'deepseek-account' || row.entry.provider === 'chatgpt')) {
       for (const row of rows) {
-        if (row.entry.provider === 'deepseek-account') row.accountAvailable = catalogGroups.some(
-          group => group.id === 'deepseek-account' && group.models.length > 0)
+        if (row.entry.provider === 'deepseek-account' || row.entry.provider === 'chatgpt') row.accountAvailable = catalogGroups.some(
+          group => group.id === row.entry.provider && group.models.length > 0)
       }
     }
     const refs = [...new Set(rows.filter(row => row.entry.provider !== 'deepseek-account').flatMap(row =>
@@ -349,7 +435,7 @@ export class ModelsSettingsStore {
  */
 export function providerUsable(row: ProviderRow): boolean {
   if (!row.entry.active) return false
-  if (row.entry.provider === 'deepseek-account') return row.accountAvailable === true
+  if (row.entry.provider === 'deepseek-account' || row.entry.provider === 'chatgpt') return row.accountAvailable === true
   if (row.apiKeyEnv === undefined) return true
   return row.credential?.configured === true
 }
@@ -422,7 +508,9 @@ export function onboardingReadiness(state: ModelsSettingsState): OnboardingReadi
       reason: 'load-failed',
     }
   }
-  if (state.rows.some(providerUsable)) return { kind: 'provider-ready' }
+  const chatgptConnected = state.rows.some(row => row.entry.provider === 'chatgpt' && row.entry.active)
+    && state.chatgpt?.accounts.some(account => account.id === state.chatgpt?.active && account.connected) === true
+  if (chatgptConnected || state.rows.some(providerUsable)) return { kind: 'provider-ready' }
   const row = state.rows.find(candidate =>
     candidate.entry.provider === 'deepseek-official'
     && candidate.entry.settingsNs === 'llm-deepseek'

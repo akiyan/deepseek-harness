@@ -114,6 +114,10 @@ interface EffectiveRoute {
 
 /** Constructor options for {@link PiAiAdapter}: the two resolution hooks the plugin owns. */
 export interface PiAiAdapterOptions {
+  /** Final protocol payload transform owned by a provider integration. */
+  onPayload?: (payload: unknown) => unknown
+  /** Provider-owned HTTP transport; omission uses pi-ai's default Fetch implementation. */
+  fetch?: typeof fetch
   /** Current validated profiles by provider route; called once per operation. */
   profiles: () => ReadonlyMap<string, ResolvedPiAiProviderProfile>
   /**
@@ -676,6 +680,8 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
+        ...this.config.onPayload === undefined ? {} : { onPayload: this.config.onPayload },
+        ...this.config.fetch === undefined ? {} : { fetch: this.config.fetch },
         headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, digest)[Symbol.asyncIterator]()

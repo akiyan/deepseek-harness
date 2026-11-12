@@ -14,6 +14,9 @@
     - button "查看 网页搜索与获取": 网页搜索与获取
     - text: 选择网页搜索与网页获取使用的提供方。
   - listitem:
+    - button "查看 Exa 搜索设置": Exa 搜索设置
+    - text: 通过匿名 MCP 或 API 密钥使用 Exa 搜索。
+  - listitem:
     - button "查看 Agent 循环": Agent 循环
     - text: 控制 Agent 派发工具调用的方式。
   - listitem:

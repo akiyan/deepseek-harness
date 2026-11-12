@@ -1776,6 +1776,102 @@ describe('ModelsSection', () => {
     expect(screen.queryByRole('textbox', { name: en.customRoute })).toBeNull()
   })
 
+  it('offers ChatGPT in the add-provider selector and opens its OAuth controls', async () => {
+    const { controller } = await mountSection()
+    const action = vi.spyOn(controller, 'chatgptAction').mockResolvedValue()
+    act(() => { controller.store.update((state) => {
+      const row = state.rows[0]!
+      state.rows = [...state.rows, { ...row, configured: false, entry: { ...row.entry, provider: 'chatgpt', displayName: en.chatgptTitle } }]
+      state.chatgpt = { accounts: [], pending: false }
+    }) })
+    expect(screen.queryByRole('region', { name: en.chatgptTitle })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    const providers = screen.getByRole('combobox', { name: en.provider })
+    expect(within(providers).getByRole('option', { name: en.chatgptTitle })).toBeTruthy()
+    fireEvent.change(providers, { target: { value: 'chatgpt' } })
+    const card = within(screen.getByRole('region', { name: en.chatgptTitle }))
+    expect(card.queryByLabelText(en.keyInput)).toBeNull()
+    fireEvent.click(card.getByRole('button', { name: en.chatgptContinue }))
+    expect(action).toHaveBeenCalledWith({ action: 'start' })
+    fireEvent.click(card.getByRole('button', { name: en.cancel }))
+    expect(screen.queryByRole('region', { name: en.chatgptTitle })).toBeNull()
+    expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
+  it('allows provider and custom API selection while another browser is authorizing ChatGPT', async () => {
+    const { controller } = await mountSection()
+    const action = vi.spyOn(controller, 'chatgptAction').mockResolvedValue()
+    act(() => { controller.store.update((state) => {
+      const row = state.rows[0]!
+      state.rows = [...state.rows, { ...row, configured: false, entry: { ...row.entry, provider: 'chatgpt', displayName: en.chatgptTitle } }]
+      state.chatgpt = { accounts: [], pending: true, authorizeUrl: '/chatgpt/authorize' }
+    }) })
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    const providers = screen.getByRole<HTMLSelectElement>('combobox', { name: en.provider })
+    expect(providers.disabled).toBe(false)
+    fireEvent.change(providers, { target: { value: 'chatgpt' } })
+    expect(screen.getByRole('region', { name: en.chatgptTitle })).toBeTruthy()
+    fireEvent.change(providers, { target: { value: 'anthropic' } })
+    expect(screen.queryByRole('region', { name: en.chatgptTitle })).toBeNull()
+    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
+    const custom = screen.getByRole<HTMLButtonElement>('tab', { name: en.addCustom })
+    expect(custom.disabled).toBe(false)
+    fireEvent.click(custom)
+    expect(screen.getByRole('textbox', { name: en.customRoute })).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: en.addCatalog }))
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: en.provider }).value).toBe('anthropic')
+    expect(controller.store.getSnapshot().chatgpt?.pending).toBe(true)
+    expect(action).not.toHaveBeenCalled()
+  })
+
+  it('lists connected ChatGPT beside providers, folds its details, and removes its signed-out row', async () => {
+    const { controller } = await mountSection()
+    const action = vi.spyOn(controller, 'chatgptAction').mockResolvedValue()
+    act(() => { controller.store.update((state) => {
+      const row = state.rows[0]!
+      state.rows = [...state.rows, { ...row, configured: false, entry: { ...row.entry, provider: 'chatgpt', displayName: en.chatgptTitle } }]
+      state.chatgpt = { active: 'first', accounts: [{ id: 'first', label: 'account@example.test', connected: true, sharing: true }], pending: false }
+    }) })
+    const edit = screen.getByRole('button', { name: /Edit Sign in with ChatGPT/ })
+    expect(edit.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('region', { name: en.chatgptTitle })).toBeNull()
+    expect(screen.getByText(en.chatgptTitle).closest('li')?.parentElement?.tagName).toBe('UL')
+    fireEvent.click(edit)
+    expect(edit.getAttribute('aria-expanded')).toBe('true')
+    const card = within(screen.getByRole('region', { name: en.chatgptTitle }))
+    expect(card.getByText('account@example.test')).toBeTruthy()
+    fireEvent.click(card.getByRole('button', { name: en.chatgptSignOut }))
+    expect(action).toHaveBeenCalledWith({ action: 'logout', id: 'first' })
+    act(() => { controller.store.update((state) => {
+      state.chatgpt = { active: 'first', accounts: [{ id: 'first', label: 'account@example.test', connected: false, sharing: false }], pending: false }
+    }) })
+    expect(screen.queryByText(en.chatgptTitle)).toBeNull()
+    expect(screen.queryByText('account@example.test')).toBeNull()
+    expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
+  it('collapses a completed ChatGPT addition into the configured provider list', async () => {
+    const { controller } = await mountSection()
+    vi.spyOn(controller, 'chatgptAction').mockImplementation(async () => {
+      controller.store.update((state) => { state.chatgpt = { accounts: [], pending: true } })
+    })
+    act(() => { controller.store.update((state) => {
+      const row = state.rows[0]!
+      state.rows = [...state.rows, { ...row, configured: false, entry: { ...row.entry, provider: 'chatgpt', displayName: en.chatgptTitle } }]
+      state.chatgpt = { accounts: [], pending: false }
+    }) })
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    fireEvent.change(screen.getByRole('combobox', { name: en.provider }), { target: { value: 'chatgpt' } })
+    fireEvent.click(screen.getByRole('button', { name: en.chatgptContinue }))
+    await waitFor(() => { expect(screen.getByRole('button', { name: en.cancel })).toBeTruthy() })
+    act(() => { controller.store.update((state) => {
+      state.chatgpt = { active: 'first', accounts: [{ id: 'first', label: 'account@example.test', connected: true, sharing: true }], pending: false }
+    }) })
+    expect(screen.queryByRole('region', { name: en.chatgptTitle })).toBeNull()
+    expect(screen.getByRole('button', { name: /Edit Sign in with ChatGPT/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
   it('switches between the modes without losing either draft', async () => {
     await mountSection()
     fireEvent.click(screen.getByRole('button', { name: en.add }))

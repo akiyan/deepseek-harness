@@ -40,7 +40,7 @@ afterEach(async () => {
 })
 
 /** Boot the dormant composition: a bare `llm-pi-ai` row with no config at all. */
-async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }> {
+async function loadComposition(chatgpt = false): Promise<{ ctx: Context; settingsPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-pi-composition-'))
   await writeFile(join(root, '.credentials.yaml'), 'version: 1\nrefs:\n  PI_COMPOSITION_KEY: key-from-store\n', { mode: 0o600 })
 
@@ -57,6 +57,7 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
     "  name: '@deepseek-ai/dsh-authorization'",
     '- id: llm-pi-ai',
     "  name: '@deepseek-ai/dsh-llm-pi-ai'",
+    ...chatgpt ? ['  config:', '    chatgpt: true'] : [],
     '',
   ].join('\n'))
 
@@ -89,6 +90,12 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
 }
 
 describe('llm-pi-ai real dormant composition', () => {
+  it('loads Sign in with ChatGPT from YAML as an independent keyless route', async () => {
+    const { ctx } = await loadComposition(true)
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'chatgpt', name: 'Sign in with ChatGPT' }])
+    expect(await ctx.llm.listModels('chatgpt')).toEqual([])
+    expect(ctx.authorization.describe(recordKeyFor('openai'))?.methods.map(method => method.id)).toEqual(['api-key'])
+  })
   it('dispatches header contributors through the Loader-mounted adapter', async () => {
     const server = await mockServer([{ events: textEvents }])
     const { ctx, settingsPath } = await loadComposition()

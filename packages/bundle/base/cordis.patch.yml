@@ -125,7 +125,9 @@
     - id: credentials
       name: '@deepseek-ai/dsh-credentials-local'
 
-    # The pi-ai multi-provider twin, mounted dormant: zero routes (and no extra
+    # The API-key routes stay dormant until configured. ChatGPT plan usage has
+    # its own OAuth-only route and account controls in Models settings.
+    # The pi-ai multi-provider twin, mounted dormant: zero API-key routes (and no extra
     # models in the picker) until a `llm-pi-ai:` settings section supplies provider
     # profiles — then those routes register live, keys resolving per request
     # through their apiKeyEnv references, and drop again when the section empties.
@@ -134,6 +136,8 @@
     # document.
     - id: llm-pi-ai
       name: '@deepseek-ai/dsh-llm-pi-ai'
+      config:
+        chatgpt: true
 
     - id: session-persistence-jsonl
       name: '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -494,6 +498,9 @@
 
     - id: web-ollama-api
       name: '@deepseek-ai/dsh-web-ollama-api'
+
+    - id: web-search-exa
+      name: '@deepseek-ai/dsh-web-search-exa'
 
     - id: web-deepseek-api
       name: '@deepseek-ai/dsh-web-deepseek-api'

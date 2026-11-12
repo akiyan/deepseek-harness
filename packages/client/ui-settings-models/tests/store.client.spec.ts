@@ -1,5 +1,5 @@
 /** Page-store join: directory × namespaces × credentials, with last-good rows on failure. */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { RpcResponse } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
@@ -649,4 +649,112 @@ it('removes the account row after sign-out and restores it after sign-in', async
   overrides.accountAvailable = true
   await store.load()
   expect(store.store.getSnapshot().rows[0]?.entry.provider).toBe('deepseek-account')
+})
+
+it('opens the authorization tab from the start gesture and navigates after Host preparation', async () => {
+  const { ctx, mirror } = api()
+  const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  const response = Promise.withResolvers<Response>()
+  const popup = { opener: {}, closed: false, location: { replace: vi.fn() }, close: vi.fn() }
+  const open = vi.fn(() => popup)
+  vi.stubGlobal('open', open)
+  vi.stubGlobal('fetch', vi.fn(() => response.promise))
+  vi.spyOn(store, 'load').mockResolvedValue()
+  try {
+    const action = store.chatgptAction({ action: 'start' })
+    expect(open).toHaveBeenCalledWith('about:blank', '_blank')
+    expect(popup.opener).toBeNull()
+    expect(popup.location.replace).not.toHaveBeenCalled()
+    response.resolve(Response.json({ accounts: [], pending: true, authorizeUrl: '/chatgpt/authorize' }))
+    await action
+    expect(popup.location.replace).toHaveBeenCalledWith('/chatgpt/authorize')
+    expect(store.store.getSnapshot().chatgptBrowserOpened).toBe(true)
+  } finally { store.dispose(); vi.unstubAllGlobals() }
+})
+
+it('closes the preparation tab after a refused start and preserves its visible error', async () => {
+  const { ctx, mirror } = api()
+  const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  const popup = { opener: {}, closed: false, close: vi.fn() }
+  vi.stubGlobal('open', vi.fn(() => popup))
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'Sign-in unavailable' }, { status: 400 })))
+  vi.spyOn(store, 'load').mockResolvedValue()
+  try {
+    await store.chatgptAction({ action: 'start' })
+    expect(popup.close).toHaveBeenCalled()
+    expect(store.store.getSnapshot().chatgptError).toBe('Sign-in unavailable')
+    expect(store.store.getSnapshot().chatgptBrowserOpened).toBe(false)
+  } finally { store.dispose(); vi.unstubAllGlobals() }
+})
+
+it('retains an explicit authorization link if the browser blocks the initial tab', async () => {
+  const { ctx, mirror } = api()
+  const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  vi.stubGlobal('open', vi.fn(() => null))
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ accounts: [], pending: true, authorizeUrl: '/chatgpt/authorize' })))
+  vi.spyOn(store, 'load').mockResolvedValue()
+  try {
+    await store.chatgptAction({ action: 'start' })
+    expect(store.store.getSnapshot()).toMatchObject({ chatgptBrowserOpened: false, chatgpt: { authorizeUrl: '/chatgpt/authorize' } })
+  } finally { store.dispose(); vi.unstubAllGlobals() }
+})
+
+it('closes an unfinished preparation tab on disposal and prevents late navigation', async () => {
+  const { ctx, mirror } = api()
+  const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  const response = Promise.withResolvers<Response>()
+  const popup = { opener: {}, closed: false, location: { replace: vi.fn() }, close: vi.fn() }
+  popup.close.mockImplementation(() => { popup.closed = true })
+  vi.stubGlobal('open', vi.fn(() => popup))
+  vi.stubGlobal('fetch', vi.fn(() => response.promise))
+  const action = store.chatgptAction({ action: 'start' })
+  try {
+    store.dispose()
+    response.resolve(Response.json({ accounts: [], pending: true, authorizeUrl: '/chatgpt/authorize' }))
+    await action
+    expect(popup.close).toHaveBeenCalled()
+    expect(popup.location.replace).not.toHaveBeenCalled()
+    expect(store.store.getSnapshot().chatgpt).toBeUndefined()
+  } finally {
+    response.resolve(Response.json({ accounts: [], pending: false }))
+    await action
+    store.dispose()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('clears an account read error after a successful reload', async () => {
+  const { ctx, mirror } = api({ providers: async () => ok({ providers: [{
+    provider: 'chatgpt', displayName: 'Sign in with ChatGPT', settingsNs: 'llm-pi-ai', settingsPath: [], active: true,
+  }] }) })
+  const request = vi.fn<typeof fetch>()
+    .mockRejectedValueOnce(new Error('Account temporarily unavailable'))
+    .mockResolvedValue(Response.json({ accounts: [], pending: false }))
+  vi.stubGlobal('fetch', request)
+  const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  try {
+    await store.load()
+    expect(store.store.getSnapshot().chatgptError).toBe('Account temporarily unavailable')
+    await store.load()
+    expect(store.store.getSnapshot().chatgpt).toEqual({ accounts: [], pending: false })
+    expect(store.store.getSnapshot().chatgptError).toBeUndefined()
+  } finally { store.dispose(); vi.unstubAllGlobals() }
+})
+
+it('retains a failed account action through the following successful status read', async () => {
+  const { ctx, mirror } = api({ providers: async () => ok({ providers: [{
+    provider: 'chatgpt', displayName: 'Sign in with ChatGPT', settingsNs: 'llm-pi-ai', settingsPath: [], active: true,
+  }] }) })
+  const request = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ error: 'Cancellation failed' }, { status: 400 }))
+    .mockImplementation(async () => Response.json({ accounts: [], pending: false }))
+  vi.stubGlobal('fetch', request)
+  const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  try {
+    await store.chatgptAction({ action: 'cancel' })
+    expect(store.store.getSnapshot().chatgpt).toEqual({ accounts: [], pending: false })
+    expect(store.store.getSnapshot().chatgptError).toBe('Cancellation failed')
+    await store.chatgptAction({ action: 'cancel' })
+    expect(store.store.getSnapshot().chatgptError).toBeUndefined()
+  } finally { store.dispose(); vi.unstubAllGlobals() }
 })

@@ -1,0 +1,11 @@
+version: 1
+scenario: chatgpt-fs-edit
+profile: headless
+composition: default
+recording: authored
+header:
+  class: chatgpt-fs-edit
+  pin: true
+  toolSchemasSource: text-turn
+workspace:
+  final: true

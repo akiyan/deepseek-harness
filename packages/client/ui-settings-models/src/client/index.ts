@@ -87,6 +87,7 @@ export function apply(ctx: ClientContext): void {
   // own `inject`; the cards receive callbacks and never a context.
   const operations = createModelsOperations(ctx)
   const controller = new ModelsSettingsStore(ctx, schema, ctx.configForms.describe())
+  ctx.effect(() => () => { controller.dispose() }, 'ui-settings-models: ChatGPT account reads')
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
   const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']

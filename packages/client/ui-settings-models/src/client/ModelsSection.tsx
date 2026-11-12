@@ -36,6 +36,7 @@ import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
+import { ChatGPTCard } from './ChatGPTCard.tsx'
 
 /** Injected dependencies of {@link ModelsSection} (slot `inject`). */
 export interface ModelsSectionInjected {
@@ -259,6 +260,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   if (state.status === 'error' && hasReadySnapshot) setHasReadySnapshot(false)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [addOpen, setAddOpen] = useState(false)
+  const [chatgptDraft, setChatgptDraft] = useState(false)
+  const [chatgptWasPending, setChatgptWasPending] = useState(false)
   const [addMode, setAddMode] = useState<AddMode>('catalog')
   /** The modes shown since the add card opened; each keeps its panel mounted. */
   const [visited, setVisited] = useState<ReadonlySet<AddMode>>(() => new Set())
@@ -290,6 +293,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const closeAdd = (): void => {
     setEditing(undefined)
     setAddOpen(false)
+    setChatgptDraft(false)
+    setChatgptWasPending(false)
     setCatalogBusy(false)
     setCustomBusy(false)
   }
@@ -350,7 +355,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     return (
       <div className={styles['section']}>
         <h2 className={styles['title']}>{t('title')}</h2>
-        <p className={styles['intro']}>{t('intro')}</p>
+        <p className={styles['intro']}>{t(state.rows.some(row => row.entry.provider === 'chatgpt') ? 'chatgptIntro' : 'intro')}</p>
       </div>
     )
   }
@@ -369,11 +374,13 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // One fact decides both first-run postures on this page and the onboarding
   // step: whether the user already has a provider to talk to.
   const anyUsable = state.rows.some(providerUsable)
-  const configured = state.rows.filter(row => row.configured)
-  const configurable = state.rows.filter(row => state.namespaces.has(row.entry.settingsNs))
+  const chatgptConnected = state.chatgpt?.accounts.some(account => account.connected && account.id === state.chatgpt?.active) === true
+  const configured = state.rows.filter(row => row.entry.provider === 'chatgpt' ? chatgptConnected : row.configured)
+  const chatgptOffered = state.rows.some(row => row.entry.provider === 'chatgpt')
+  const configurable = state.rows.filter(row => row.entry.provider !== 'chatgpt' && state.namespaces.has(row.entry.settingsNs))
   const addable: AddableRow[] = state.rows.flatMap((row) => {
     const namespace = state.namespaces.get(row.entry.settingsNs)
-    return namespace === undefined || row.configured ? [] : [{ row, namespace }]
+    return namespace === undefined || row.configured || row.entry.provider === 'chatgpt' ? [] : [{ row, namespace }]
   })
   // Hand-declared routes live in the pi-ai namespace, which is also the only
   // one whose schema names the protocols one may speak; without it mounted
@@ -387,14 +394,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   // the shown mode or has been shown since the card opened — derived, so a
   // refresh that changes which modes are offered can never leave the card
   // without a panel.
-  const catalogOffered = configurable.length > 0
-  const catalogEnabled = addable.length > 0
+  const catalogOffered = configurable.length > 0 || chatgptOffered
+  const catalogEnabled = addable.length > 0 || chatgptOffered
   const customOffered = piAi !== undefined
   const customEnabled = protocols.length > 0
   const bothOffered = catalogOffered && customOffered
   const mode: AddMode = bothOffered ? addMode : customOffered ? 'custom' : 'catalog'
   const mounted = (candidate: AddMode): boolean => mode === candidate || visited.has(candidate)
-  const switchLocked = catalogBusy || customBusy
+  const switchLocked = catalogBusy || customBusy || state.chatgptBusy === true
   // The catalog draft: the row the user chose, kept through a refresh that
   // adopts or withdraws it elsewhere so a typed key is never discarded, for as
   // long as its namespace can still take the write; else the first row still
@@ -414,10 +421,18 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     ? undefined
     : state.rows.find(row => row.entry.provider === draft.target.provider)
 
+  if (addOpen && chatgptDraft && !state.chatgptBusy) {
+    const pending = state.chatgpt?.pending === true
+    if (pending !== chatgptWasPending) {
+      setChatgptWasPending(pending)
+      if (chatgptWasPending && !pending && chatgptConnected && !state.chatgpt?.error && !state.chatgptError) closeAdd()
+    }
+  }
+
   return (
     <div className={styles['section']}>
       <h2 className={styles['title']}>{t('title')}</h2>
-      <p className={styles['intro']}>{t('intro')}</p>
+      <p className={styles['intro']}>{t(state.rows.some(row => row.entry.provider === 'chatgpt') ? 'chatgptIntro' : 'intro')}</p>
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
       {savedIdentity === undefined
         ? null
@@ -429,6 +444,29 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
       <ul className={styles['rows']}>
         {configured.map((row) => {
           const target = targetOf(row)
+          if (row.entry.provider === 'chatgpt') {
+            const open = !addOpen && editing?.provider === 'chatgpt'
+            return <li key="chatgpt" className={styles['rowCard']}>
+              <div className={styles['rowHead']}>
+                <span className={styles['rowIdentity']}>
+                  <span className={styles['rowName']}>{t('chatgptTitle')}</span>
+                  <span className={`${styles['credentialDot']} ${styles['credentialDotConfigured']}`}
+                    role="img" aria-label={t('accountSignedIn')} title={t('accountSignedIn')} />
+                </span>
+                <span className={styles['rowActions']}>
+                  <button type="button" className={styles['secondaryButton']} aria-expanded={open}
+                    aria-label={providerCopy(t('editProvider'), target)} disabled={state.chatgptBusy === true}
+                    onClick={() => { closeAdd(); setEditing(open ? undefined : target) }}>{t('edit')}</button>
+                </span>
+              </div>
+              {open ? <>
+                <ChatGPTCard onClose={() => { setEditing(undefined) }} browserOpened={state.chatgptBrowserOpened === true}
+                  view={state.chatgpt ?? { accounts: [], pending: false }} busy={state.chatgptBusy === true}
+                  {...state.chatgptError === undefined ? {} : { error: state.chatgptError }}
+                  act={action => controller.chatgptAction(action)} t={t} />
+              </> : null}
+            </li>
+          }
           const namespace = state.namespaces.get(target.settingsNs)
           /* v8 ignore next -- the join marks a row configured only when its namespace resolved */
           if (namespace === undefined) return null
@@ -610,11 +648,11 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       <span className={styles['editorTitle']}>{t(mode === 'catalog' ? 'addCatalog' : 'addCustom')}</span>
                     </div>
                   )}
-                <p className={styles['advancedHint']}>
+                {mode === 'catalog' && chatgptDraft ? null : <p className={styles['advancedHint']}>
                   {t(mode === 'catalog' ? 'addCatalogHint' : 'addCustomHint')}
-                </p>
+                </p>}
               </div>
-              {mounted('catalog') && draft !== undefined
+              {mounted('catalog') && (draft !== undefined || chatgptOffered)
                 ? (
                   <div
                     id={`${addId}-catalog-panel`}
@@ -626,22 +664,30 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       <span className={styles['fieldLabel']}>{t('provider')}</span>
                       <select
                         className={`${styles['input']} ${styles['selectInput']}`}
-                        value={draft.target.provider}
+                        value={chatgptDraft ? 'chatgpt' : draft?.target.provider ?? 'chatgpt'}
                         aria-label={t('provider')}
-                        disabled={catalogBusy}
+                        disabled={switchLocked}
                         onChange={(event) => {
+                          if (event.target.value === 'chatgpt') { setChatgptDraft(true); return }
+                          setChatgptDraft(false)
                           const picked = addable.find(candidate => candidate.row.entry.provider === event.target.value)
                           /* v8 ignore next -- the select only lists addable rows */
                           if (picked === undefined) return
                           setEditing(targetOf(picked.row))
                         }}
                       >
+                        {chatgptOffered ? <option value="chatgpt">{t('chatgptTitle')}</option> : null}
                         {addable.map(({ row }) => (
                           <option key={row.entry.provider} value={row.entry.provider}>{row.entry.displayName}</option>
                         ))}
                       </select>
                     </div>
-                    <ProviderEditor
+                    {chatgptDraft || draft === undefined ? <>
+                      <ChatGPTCard hideTitle onClose={closeAdd} browserOpened={state.chatgptBrowserOpened === true}
+                        view={state.chatgpt ?? { accounts: [], pending: false }} busy={state.chatgptBusy === true}
+                        {...state.chatgptError === undefined ? {} : { error: state.chatgptError }}
+                        act={action => controller.chatgptAction(action)} t={t} />
+                    </> : <ProviderEditor
                       key={draft.target.provider}
                       provider={draft.target.provider}
                       displayName={draft.target.displayName}
@@ -658,8 +704,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       readOnly={!state.writable}
                       onClose={(changed) => { closeEditor(changed, draft.target) }}
                       onBusyChange={setCatalogBusy}
-                    />
-                    {addRow === undefined
+                    />}
+                    {chatgptDraft || addRow === undefined
                       ? null
                       : renderSlot(
                         'settings.models.provider-card',
@@ -710,6 +756,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     const first = addable[0]
                     const initial: AddMode = catalogEnabled ? 'catalog' : 'custom'
                     setSavedTarget(undefined)
+                    setChatgptDraft(first === undefined && chatgptOffered)
                     setEditing(first === undefined ? undefined : targetOf(first.row))
                     setAddMode(initial)
                     setVisited(new Set([initial]))
@@ -723,6 +770,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             )
             : null}
       </div>
+      {state.chatgptError !== undefined && !addOpen && (editing?.provider !== 'chatgpt' || !chatgptConnected)
+        ? <p role="alert" className={styles['error']}>{state.chatgptError}</p> : null}
       {renderSlot('settings.models.footer', {})}
       <Modal
         open={deleteTarget !== undefined}

@@ -24,12 +24,17 @@ import {
 import { mergeRegister } from '@lexical/utils'
 import type { ArbitrateKey, ArbitrateOutcome } from '../../contract/draft-editor.ts'
 import { clipboardFiles } from '../file-intake.ts'
+import { $composerLayout, $detectOffsetOfPoint } from './projection.ts'
 import { $isQuoteNode } from './QuoteNode.tsx'
 
 /** The bar-supplied behavior behind each intercepted gesture. */
 export interface ComposerKeymapHandlers {
   /** Keyboard arbitration while the menu is open ('pass' when no pipeline). */
   arbitrate(key: ArbitrateKey, composing: boolean): ArbitrateOutcome
+  /** Whether arrows continue browsing instead of moving within the recalled prompt. */
+  isRecallingPrompt?(): boolean
+  /** History navigation after menu arbitration and native vertical caret movement. */
+  recallPrompt?(direction: 'up' | 'down'): boolean
   /** Space adjudication; true = a claim was applied — the keystroke is consumed. */
   space(): boolean
   /** Dismiss the popupSelect shell (Escape layering: an open overlay closes first). */
@@ -167,6 +172,27 @@ function movePastQuote(editor: LexicalEditor, event: KeyboardEvent): boolean {
   return true
 }
 
+/** Whether a focused, collapsed caret can start or continue prompt browsing. */
+function atHistoryBoundary(editor: LexicalEditor, direction: 'up' | 'down', recalling: boolean): boolean {
+  const selection = $getSelection()
+  const root = editor.getRootElement()
+  if (!$isRangeSelection(selection) || !selection.isCollapsed() || root === null || root.ownerDocument.activeElement !== root) return false
+  if (recalling) return true
+  const layout = $composerLayout()
+  const offset = $detectOffsetOfPoint(layout, selection.focus)
+  if (offset === null) return false
+  if (direction === 'up' ? layout.detectText.slice(0, offset).includes('\n') : layout.detectText.slice(offset).includes('\n')) return false
+  if (layout.detectText === '') return true
+  const dom = root.ownerDocument.defaultView?.getSelection()
+  if (dom === null || dom === undefined || dom.rangeCount === 0 || !dom.isCollapsed) return false
+  const caret = dom.getRangeAt(0).getBoundingClientRect()
+  if (caret.height === 0) return direction === 'up' ? offset === 0 : offset === layout.detectLength
+  const contents = root.ownerDocument.createRange()
+  contents.selectNodeContents(root)
+  return ![...contents.getClientRects()].some(rect => rect.height > 0
+    && (direction === 'up' ? rect.bottom <= caret.top : rect.top >= caret.bottom))
+}
+
 /**
  * Register the composer keymap on one editor.
  * @param editor - the shell-owned editor.
@@ -200,6 +226,12 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
     const inComposition = event !== null && isComposingEvent(event, recentlyComposing)
     if (handlers.arbitrate(key, inComposition) !== 'pass') {
       event?.preventDefault()
+      return true
+    }
+    if ((key === 'up' || key === 'down') && handlers.recallPrompt !== undefined && event !== null
+      && !inComposition && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+      && atHistoryBoundary(editor, key, handlers.isRecallingPrompt?.() === true) && handlers.recallPrompt(key)) {
+      event.preventDefault()
       return true
     }
     return false

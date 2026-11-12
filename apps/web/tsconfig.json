@@ -44,6 +44,8 @@
     "tests/shortcuts-fixed.e2e.ts",
     "tests/shortcuts.e2e.ts",
     "tests/composer-shortcuts.e2e.ts",
+    "tests/composer-prompt-history.e2e.ts",
+    "tests/exa-settings.e2e.ts",
     "tests/default-product-isolation.e2e.ts",
     "tests/diff-context.e2e.ts",
     "tests/search-empty-include.e2e.ts",

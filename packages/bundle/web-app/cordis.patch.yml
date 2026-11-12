@@ -536,6 +536,9 @@
     - id: ui-settings-web-search-ollama
       name: '@deepseek-ai/dsh-client-ui-settings-web-search-ollama'
 
+    - id: ui-settings-web-search-exa
+      name: '@deepseek-ai/dsh-client-ui-settings-web-search-exa'
+
     # Plan control: the composer plan seat over the plan projection + /plan channel.
     - id: ui-plan
       name: '@deepseek-ai/dsh-client-ui-plan'

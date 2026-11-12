@@ -129,3 +129,12 @@ describe('onboardingReadiness', () => {
     })
   })
 })
+
+it('suppresses API-key onboarding for an active ChatGPT login even before models are listed', () => {
+  const chatgptRow = row({ entry: { ...row().entry, provider: 'chatgpt' }, accountAvailable: false })
+  const chatgpt = { active: 'current', accounts: [{ id: 'current', label: 'account', connected: true, sharing: true }], pending: false }
+  expect(onboardingReadiness(state({ rows: [row(), chatgptRow], chatgpt }))).toEqual({ kind: 'provider-ready' })
+  expect(onboardingReadiness(state({ rows: [row(), chatgptRow], chatgpt: { ...chatgpt, active: 'other' } }))).toEqual({ kind: 'credential-missing' })
+  expect(onboardingReadiness(state({ rows: [row(), chatgptRow], chatgpt: { ...chatgpt, accounts: [{ ...chatgpt.accounts[0]!, connected: false }] } }))).toEqual({ kind: 'credential-missing' })
+  expect(onboardingReadiness(state({ rows: [row(), { ...chatgptRow, entry: { ...chatgptRow.entry, active: false } }], chatgpt }))).toEqual({ kind: 'credential-missing' })
+})

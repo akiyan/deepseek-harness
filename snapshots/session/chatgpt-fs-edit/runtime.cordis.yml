@@ -1,0 +1,11 @@
+# Session routing and filesystem oracle; protocol serialization is tested by chatgpt.spec.ts.
+- id: llm-pi-ai
+  config:
+    chatgpt: false
+- id: llm-replay
+  config:
+    providers:
+      - id: chatgpt
+        name: Sign in with ChatGPT
+        models:
+          - id: gpt-6-sol

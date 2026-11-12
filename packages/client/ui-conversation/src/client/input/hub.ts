@@ -26,6 +26,7 @@ import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 import { reportMessageSubmission } from './submission-analytics.ts'
+import { readPromptHistory } from './prompt-history.ts'
 import { readConversationDraft } from '../stores.ts'
 
 /** Structural command face for per-session popup resolution. */
@@ -102,6 +103,20 @@ export class InputHub implements SessionInputResolver {
     const { session, ctx: actx } = binding
     const shell = new SessionInputShell({
       actx,
+      promptHistory: () => readPromptHistory(binding.eventSource),
+      canLoadOlderPrompts: () => binding.eventSource.getSnapshot().hasMore,
+      olderPromptHistory: async () => {
+        let prompts = readPromptHistory(binding.eventSource)
+        const previousCount = prompts.length
+        while (binding.eventSource.getSnapshot().hasMore) {
+          const before = binding.eventSource.getSnapshot()
+          await session.loadOlder()
+          const after = binding.eventSource.getSnapshot()
+          prompts = readPromptHistory(binding.eventSource)
+          if (prompts.length > previousCount || after.entries[0]?.event.seq === before.entries[0]?.event.seq) break
+        }
+        return prompts
+      },
       submissionState: () => {
         const state = session.getSnapshot()
         const model = session.projections.faceOf('modelSelection').getSnapshot() as ModelSelectionProjection | undefined

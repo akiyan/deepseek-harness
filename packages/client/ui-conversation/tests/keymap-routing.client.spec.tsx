@@ -142,3 +142,74 @@ describe('keymap keydown routing', () => {
     expect(arbitrate).toHaveBeenLastCalledWith('tabBack', false)
   })
 })
+
+it('gives completion menus, IME, selections, and modified arrows priority over prompt recall', () => {
+  const editor = createEditor({ namespace: 'prompt-history-routing', onError: (error) => { throw error } })
+  const root = document.createElement('div')
+  root.contentEditable = 'true'
+  root.tabIndex = 0
+  document.body.append(root)
+  editor.setRootElement(root)
+  const plain = registerPlainText(editor)
+  const recall = vi.fn(() => true)
+  const arbitrate = vi.fn<() => 'pass' | 'consumed'>(() => 'pass')
+  const stop = registerComposerKeymap(editor, {
+    arbitrate, recallPrompt: recall, space: () => false, dismissPopup: () => {},
+    canSubmit: () => true, submit: () => {}, intakeFiles: () => {}, pasteText: () => {},
+  })
+  onTestFinished(() => { stop(); plain(); editor.setRootElement(null); root.remove() })
+  editor.update(() => { $getRoot().append($createParagraphNode()).selectEnd() }, { discrete: true })
+  root.focus()
+  fireEvent.keyDown(root, { key: 'ArrowUp' })
+  expect(recall).toHaveBeenLastCalledWith('up')
+  recall.mockClear()
+  for (const modifiers of [{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }]) {
+    fireEvent.keyDown(root, { key: 'ArrowUp', ...modifiers })
+  }
+  expect(recall).not.toHaveBeenCalled()
+  arbitrate.mockReturnValueOnce('consumed')
+  fireEvent.keyDown(root, { key: 'ArrowDown' })
+  expect(recall).not.toHaveBeenCalled()
+  editor.update(() => {
+    const text = $createTextNode('selected')
+    $getRoot().clear().append($createParagraphNode().append(text))
+    text.select(0, 3)
+  }, { discrete: true })
+  fireEvent.keyDown(root, { key: 'ArrowUp' })
+  expect(recall).not.toHaveBeenCalled()
+})
+
+it.each(['up', 'down'] as const)('continues history %s navigation inside a recalled multiline prompt', (direction) => {
+  const editor = createEditor({ namespace: 'prompt-history-lines', onError: (error) => { throw error } })
+  const root = document.createElement('div')
+  root.contentEditable = 'true'
+  root.tabIndex = 0
+  document.body.append(root)
+  editor.setRootElement(root)
+  const plain = registerPlainText(editor)
+  const recall = vi.fn(() => true)
+  const recalling = vi.fn(() => false)
+  const stop = registerComposerKeymap(editor, {
+    arbitrate: () => 'pass', isRecallingPrompt: recalling, recallPrompt: recall,
+    space: () => false, dismissPopup: () => {}, canSubmit: () => true,
+    submit: () => {}, intakeFiles: () => {}, pasteText: () => {},
+  })
+  onTestFinished(() => { stop(); plain(); editor.setRootElement(null); root.remove() })
+  editor.update(() => {
+    const first = $createTextNode('first line')
+    const last = $createTextNode('last line')
+    $getRoot().append($createParagraphNode().append(first), $createParagraphNode().append(last))
+    if (direction === 'up') last.selectEnd()
+    else first.selectStart()
+  }, { discrete: true })
+  root.focus()
+  const key = direction === 'up' ? 'ArrowUp' : 'ArrowDown'
+  fireEvent.keyDown(root, { key })
+  expect(recall).not.toHaveBeenCalled()
+  recalling.mockReturnValue(true)
+  expect(fireEvent.keyDown(root, { key })).toBe(false)
+  expect(recall).toHaveBeenLastCalledWith(direction)
+  recall.mockClear()
+  fireEvent.keyDown(root, { key, shiftKey: true })
+  expect(recall).not.toHaveBeenCalled()
+})

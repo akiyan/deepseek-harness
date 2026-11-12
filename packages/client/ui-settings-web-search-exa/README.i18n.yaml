@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-settings-web-search-exa/README.md
+/:
+  en: 814d3e104ddc47f0
+  zh: 9902997b5e38c56d
+/deepseek-ai-dsh-client-ui-settings-web-search-exa:
+  en: eaacfe1945d8303d
+  zh: fa9fdfed455c1bb7
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/summary:
+  en: 6de2cda122ef9cb2
+  zh: f9148db27f7241ec
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/table-of-contents:
+  en: 23386452a66b2fbd
+  zh: a10723892181a1e6
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/use-this-package:
+  en: 314ca8338be59f65
+  zh: dbf7c33d8bb69825
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/understand-the-implementation:
+  en: b0872de8d707804e
+  zh: dad385790d040e5f
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/further-exploration:
+  en: 39bd5e3aea07abee
+  zh: 2977c764904f2cb2
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/dev-note:
+  en: 6719a9f1e908b85c
+  zh: 6f10eedb59f838b7
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/model-experience:
+  en: 8e59f6a9eb15c56e
+  zh: 0f2039b02961ba30
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/model-experience/kv-cache-effect:
+  en: 953d9deb00152326
+  zh: 498cf2d6a9af6dac
+/deepseek-ai-dsh-client-ui-settings-web-search-exa/known-limitations-and-deferred-work:
+  en: d682f353f10fd18d
+  zh: fba1d683c0c3cc1d

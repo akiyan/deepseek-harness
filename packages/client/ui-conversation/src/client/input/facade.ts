@@ -26,6 +26,7 @@ import type {
 import type { InputSubmitMode, MessageSubmission, MessageSubmissionState } from '../contract/composer-submission.ts'
 import { serializeDraftPrompt } from './prompt.ts'
 import { SubmitMachine } from './machine.ts'
+import type { PromptHistoryItem } from './prompt-history.ts'
 import { resolveDraftInput, snapshotDraft } from '../draft.ts'
 import { DraftEditorRuntime } from './editor/runtime.ts'
 import type { EditorProjection } from './editor/projection.ts'
@@ -43,6 +44,12 @@ export interface PopupDismissFace {
 export interface SessionInputDeps {
   /** Session-scope ctx handed to claim.submit transactions. */
   actx: Context
+  /** Human prompts in chronological order, read when browsing starts. */
+  promptHistory?: () => readonly PromptHistoryItem[]
+  /** Whether earlier Session pages remain outside the loaded window. */
+  canLoadOlderPrompts?: () => boolean
+  /** Load earlier Session pages, returning the expanded prompt window. */
+  olderPromptHistory?: () => Promise<readonly PromptHistoryItem[]>
   /** Snapshot the Session facts before asynchronous command arbitration. */
   submissionState?: () => MessageSubmissionState
   /** Notify one ordinary message attempt before reference serialization. */
@@ -173,6 +180,8 @@ export class SessionInputShell implements SessionInput {
   private draftSnapshotCache: { revision: number; value: DraftSnapshot } | undefined
   private attachmentIds: readonly DraftAttachmentId[] = []
   private disposed = false
+  private loadingPromptHistory = false
+  private recalledPrompts: { items: readonly PromptHistoryItem[]; index: number; original: DraftSnapshot } | undefined
   /** Conversation store writer for the current semantic document. */
   private persistDraft: ((draft: DraftSnapshot) => void) | undefined
   /** A restored draft's command token waiting for the trigger pipeline, with the revision its restore produced. */
@@ -207,6 +216,7 @@ export class SessionInputShell implements SessionInput {
     // with content so a snapshot-built span (apply.ts) stays CAS-valid across
     // caret motion and subscribers do not re-render per caret move.
     if (projectionContentChanged(prev, this.projection)) {
+      if (this.recalledPrompts?.items.length === 0) this.recalledPrompts = undefined
       this.rev += 1
       this.dispatchRun(({ type: 'draft-changed', command: this.projection.command }))
     }
@@ -227,6 +237,11 @@ export class SessionInputShell implements SessionInput {
    * @param text - plain text or the complete semantic document.
    */
   setDraft(text: DraftInput): void {
+    this.recalledPrompts = undefined
+    this.replaceDraft(text)
+  }
+
+  private replaceDraft(text: DraftInput): void {
     const draft = resolveDraftInput(text)
     this.cancelCommandRestore()
     if (draft.references.length === 0 && (draft.quotes?.length ?? 0) === 0) this.draftEditor.setDraft(draft.text)
@@ -301,7 +316,7 @@ export class SessionInputShell implements SessionInput {
 
   /** Persist the latest document without changing the editor or binding a writer. */
   persistCurrentDraft(): void {
-    this.persistDraft?.(this.draftSnapshot)
+    this.persistDraft?.(this.recalledPrompts?.original ?? this.draftSnapshot)
   }
 
   /**
@@ -634,6 +649,71 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
+   * Report whether arrows continue browsing a retained prompt history.
+   * @returns whether prompt browsing is retaining a working draft.
+   */
+  isRecallingPrompt(): boolean {
+    return this.recalledPrompts !== undefined
+  }
+
+  /**
+   * Browse this Session's human prompts without replacing its saved working draft.
+   * @param direction - older or newer prompt.
+   * @returns whether the history gesture was handled.
+   */
+  recallPrompt(direction: 'up' | 'down'): boolean {
+    if (this.disposed || frozen(this.snapshot.phase)) return false
+    let history = this.recalledPrompts
+    if (history === undefined) {
+      if (direction === 'down') return false
+      const items = this.deps.promptHistory?.() ?? []
+      if (items.length === 0 && this.deps.canLoadOlderPrompts?.() !== true) return false
+      history = { items, index: items.length, original: this.draftSnapshot }
+      this.recalledPrompts = history
+    }
+    if (direction === 'up' && history.index === 0 && this.deps.olderPromptHistory !== undefined
+      && this.deps.canLoadOlderPrompts?.() !== false) {
+      this.loadEarlierPrompts(history)
+      return true
+    }
+    const index = Math.max(0, history.index + (direction === 'up' ? -1 : 1))
+    if (index >= history.items.length) {
+      this.recalledPrompts = undefined
+      this.replaceDraft(history.original)
+    } else {
+      const item = history.items[index]
+      if (item === undefined) return false
+      history.index = index
+      this.replaceDraft(item.text)
+    }
+    return true
+  }
+
+  private loadEarlierPrompts(history: NonNullable<SessionInputShell['recalledPrompts']>): void {
+    if (this.loadingPromptHistory || this.deps.olderPromptHistory === undefined) return
+    this.loadingPromptHistory = true
+    const revision = this.rev
+    void this.deps.olderPromptHistory().then((items) => {
+      if (this.disposed || this.recalledPrompts !== history || this.rev !== revision || frozen(this.snapshot.phase)) return
+      if (history.items.length === 0 && items.length === 0) {
+        this.recalledPrompts = undefined
+        this.publish()
+        return
+      }
+      const oldest = history.items[0]
+      const index = oldest === undefined ? items.length : items.findIndex(item => item.id === oldest.id)
+      if (index <= 0) return
+      const item = items[index - 1]
+      if (item === undefined) return
+      history.items = items
+      history.index = index - 1
+      this.replaceDraft(item.text)
+    }, (error: unknown) => {
+      if (!this.disposed && this.recalledPrompts === history) this.notify('error', errorText(error))
+    }).finally(() => { this.loadingPromptHistory = false })
+  }
+
+  /**
    * Bind the mounted composer's file action and live intake availability.
    * @param picker - availability query and native file-dialog opener.
    * @returns the unbind disposer.
@@ -714,6 +794,11 @@ export class SessionInputShell implements SessionInput {
       return null
     })
     this.draftEditor.clearHistory()
+    const original = this.recalledPrompts?.original
+    if (original !== undefined) {
+      this.recalledPrompts = undefined
+      this.replaceDraft(original)
+    }
   }
 
   /**
@@ -874,7 +959,7 @@ export class SessionInputShell implements SessionInput {
   private publish(): void {
     const next = this.compose()
     this.state.set(next)
-    const draft = this.draftSnapshot
+    const draft = this.recalledPrompts?.original ?? this.draftSnapshot
     if (draft !== this.lastPublishedDraft) {
       this.lastPublishedDraft = draft
       this.persistDraft?.(draft)

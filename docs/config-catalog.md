@@ -2083,6 +2083,8 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 ```ts config-catalog
 /** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
+  /** Offer the independent Sign in with ChatGPT provider and account controls. */
+  chatgpt?: boolean
   /**
    * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
    * the dormant settings-driven posture: the adapter mounts with no routes
@@ -5064,6 +5066,32 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-deepseek -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-web-search-exa -->
+<a id="deepseek-aidsh-web-search-exa"></a>
+
+## `@deepseek-ai/dsh-web-search-exa`
+
+- `inject`: `web`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/web/web-search-exa/src/index.ts:14`](../packages/web/web-search-exa/src/index.ts)
+
+```ts config-catalog
+/** Live Exa request settings; keys are stored separately in the credential store. */
+export interface Config {
+  /** Default result count when a request supplies no bound (1–100). */
+  maxResults: Volatile<number>
+  /** REST API base; authenticated requests append /search. */
+  baseURL: Volatile<string>
+  /** Anonymous Streamable HTTP MCP endpoint; enables the advanced tool when tools is omitted. */
+  mcpURL: Volatile<string>
+  /** Total network-operation deadline in milliseconds. */
+  timeoutMs: Volatile<number>
+  /** Maximum decoded response bytes before terminating an upstream stream. */
+  maxResponseBytes: Volatile<number>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-exa -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-webhook-github -->
 <a id="deepseek-aidsh-webhook-github"></a>
 
@@ -5219,6 +5247,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-settings-shell` | — | [`packages/client/ui-settings-shell/src/index.ts`](../packages/client/ui-settings-shell/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-subagent` | — | [`packages/client/ui-settings-subagent/src/index.ts`](../packages/client/ui-settings-subagent/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-web-search` | — | [`packages/client/ui-settings-web-search/src/index.ts`](../packages/client/ui-settings-web-search/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-settings-web-search-exa` | — | [`packages/client/ui-settings-web-search-exa/src/index.ts`](../packages/client/ui-settings-web-search-exa/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-web-search-ollama` | — | [`packages/client/ui-settings-web-search-ollama/src/index.ts`](../packages/client/ui-settings-web-search-ollama/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-shortcuts` | — | [`packages/client/ui-shortcuts/src/index.ts`](../packages/client/ui-shortcuts/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-sidebar` | — | [`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts) |

@@ -8,7 +8,7 @@
   - button "打开配置文件"
   - button "关闭"
   - heading "模型" [level=2]
-  - paragraph: 填入各提供商的 API 密钥即可使用其模型。
+  - paragraph: 配置模型提供方或连接 ChatGPT 账号。
   - list:
     - listitem:
       - text: minimax-cn
