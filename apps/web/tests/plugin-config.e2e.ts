@@ -101,9 +101,7 @@ describe('web e2e: plugin configuration pages', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-plugin-config-cards'))
     const panel = await openPlugins()
 
-    // Every page the shipped web composition exposes: the shell executor, the
-    // agent loop, subagent selection, and the web search and fetch provider. This
-    // fork's own cards (the Ollama Cloud web providers, push guard) live in the shiguredo group.
+    // Built-in settings stay separate from the Shiguredo and akiyan groups.
     await panel.getByRole('button', { name: '查看 网页搜索与获取', exact: true }).waitFor({ timeout: 20_000 })
     const basic = panel.locator('[data-plugin-group="basic"]')
     expect(await basic.locator('[data-plugin-item]').count()).toBe(4)
@@ -118,6 +116,11 @@ describe('web e2e: plugin configuration pages', () => {
     for (const title of ['使用 Ollama Cloud 的网页搜索与页面获取', 'Git 推送防护']) {
       expect(await shiguredo.getByRole('button', { name: `查看 ${title}`, exact: true }).count()).toBe(1)
     }
+    const akiyan = panel.locator('[data-plugin-group="akiyan"]')
+    expect(await akiyan.locator(':scope > ul > li').evaluateAll(cards => cards.map(card => card.getAttribute('data-plugin-item'))))
+      .toEqual(['web-search-exa', 'composer-prompt-suggestions'])
+    expect(await akiyan.getByRole('button', { name: '查看 Exa 搜索设置', exact: true }).count()).toBe(1)
+    expect(await akiyan.getByRole('button', { name: '查看 建议下一条消息', exact: true }).count()).toBe(1)
     // A card carries the one-liner; the fields wait for the page.
     expect(await basic.getByText('限制每条命令最多能跑多久、最多输出多少内容。', { exact: true }).count()).toBe(1)
     expect(await panel.getByLabel('命令超时（毫秒）').count()).toBe(0)
@@ -192,14 +195,14 @@ describe('web e2e: plugin configuration pages', () => {
     // The Ollama Cloud providers register while the launching environment's
     // shared key resolves, so this deployment lists them beside the DeepSeek
     // entries.
-    expect(await entries(searchMenu)).toEqual(['自动选择', 'DeepSeek Search API', 'DeepSeek 服务端搜索', 'Ollama Cloud'])
+    expect(await entries(searchMenu)).toEqual(['自动选择', 'DeepSeek Search API', 'DeepSeek 服务端搜索', 'Ollama Cloud', 'Exa'])
     expect(await entries(fetchMenu)).toEqual(['本机直接获取', 'DeepSeek Fetch API', 'Ollama Cloud'])
     expect(await settingsDocument()).not.toContain('searchProvider:')
     // The page fixes the menu order itself; the Loader imports plugins concurrently, so the
     // Host's registration order is not the YAML row order and only its membership is checked here.
     const hostWeb = scaffold.ctx.get('web') as { listProviders(): Record<'search' | 'fetch', { id: string }[]> } | undefined
     expect(hostWeb?.listProviders().search.map(provider => provider.id).sort())
-      .toEqual(['deepseek-official', 'deepseek-search-api', 'ollama-cloud-search'])
+      .toEqual(['deepseek-official', 'deepseek-search-api', 'exa', 'ollama-cloud-search'])
     // Automatic selection states which provider the Host runs for each model and shows no provider panel.
     expect(await searchSection.getByText(
       '跟随当前会话的模型：DeepSeek 模型使用 DeepSeek 服务端搜索，搜索不按次收费；其他模型使用 DeepSeek Search API。', { exact: true },
@@ -279,7 +282,7 @@ describe('web e2e: plugin configuration pages', () => {
     await openPage(panel, '网页搜索与获取')
     expect(await searchMenu.textContent()).toBe('DeepSeek 服务端搜索')
     expect(await messagesEndpoint.inputValue()).toBe('https://messages.test/anthropic/v1')
-    expect(await entries(searchMenu)).toEqual(['自动选择', 'DeepSeek Search API', 'DeepSeek 服务端搜索', 'Ollama Cloud'])
+    expect(await entries(searchMenu)).toEqual(['自动选择', 'DeepSeek Search API', 'DeepSeek 服务端搜索', 'Ollama Cloud', 'Exa'])
     expect(await save.isDisabled()).toBe(true)
     expect(await settingsDocument()).toContain('searchProvider: deepseek-official')
     await choose(searchMenu, 'DeepSeek Search API')

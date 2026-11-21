@@ -4,7 +4,7 @@ import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context, Service, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { errorChain, type ReasoningEffortId, type MessageSource } from '@deepseek-ai/dsh-llm'
@@ -14,6 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { Remote, RemoteError, TypertRemoteService, principalOf } from '@deepseek-ai/dsh-typert-protocol'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { canonicalClientTimeZone } from '@deepseek-ai/dsh-util-time'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type {} from '@deepseek-ai/dsh-api-remote-access'
@@ -33,6 +34,7 @@ import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
 import { ArchivedSessionGate } from './archived-session-gate.ts'
+import { PromptSuggestions } from './prompt-suggestions.ts'
 import type {
   ModelCatalog,
   SessionWorkspacePathApplication,
@@ -55,6 +57,7 @@ import type {
   SessionProjectionFrame, SessionStateRequest, SessionState, SessionWaitRequest, SessionWaitValue,
   SessionPromptRequest,
   SessionPromptValue,
+  SessionSuggestPromptRequest,
   SessionRenameRequest,
   SessionRenameValue,
   SessionSearchRequest,
@@ -68,6 +71,7 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+export type {} from './prompt-suggestions.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
@@ -85,10 +89,21 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /** Whether the Host may request a suggestion on the final reply's route. Defaults to true; the Loader supplies a live reference. */
+  readonly promptSuggestionsEnabled?: boolean | Volatile<boolean>
+  /** End-to-end suggestion deadline in milliseconds. Defaults to 3000. */
+  readonly promptSuggestionTimeoutMs?: number
 }
 
+/** Raw configuration parsed by the Loader before construction. */
+type ConfigInput = Omit<Config, 'promptSuggestionsEnabled'> & { readonly promptSuggestionsEnabled?: boolean }
+
 /** Deployment policy after schema defaults have been applied. */
-type ResolvedConfig = Config & { readonly listWorkSliceMs: number }
+type ResolvedConfig = Config & {
+  readonly listWorkSliceMs: number
+  readonly promptSuggestionsEnabled: Volatile<boolean>
+  readonly promptSuggestionTimeoutMs: number
+}
 
 /** Host integrations replaceable by direct unit tests. */
 export interface SessionControllerInternals {
@@ -122,14 +137,17 @@ export class SessionController extends TypertRemoteService {
     'workspaceRegistry',
   ]
 
-  static Config: z<Config, ResolvedConfig> = z.object({
+  static Config: z<ConfigInput, ResolvedConfig> = z.object({
     nativeOpen: z.boolean(),
     listWorkSliceMs: z.natural().min(1).default(16),
+    promptSuggestionsEnabled: z.boolean().default(true).volatile(),
+    promptSuggestionTimeoutMs: z.natural().min(1).max(MAX_TIMER_DELAY_MS).default(3_000),
   })
 
   private historyController!: HistoryController
   private stateController!: StateController
   private webController!: WebController
+  private readonly promptSuggestions: PromptSuggestions
 
   private agents!: ApiSessionAgentController
   private commands!: SessionCommandController
@@ -145,12 +163,18 @@ export class SessionController extends TypertRemoteService {
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
-   * @param config - native-opener and list-scheduling deployment policy.
+   * @param config - Loader-resolved policy, or raw options from an in-process caller.
    * @param internals - host integrations replaceable by direct unit tests.
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
-    this.listWorkSliceMs = SessionController.Config(config).listWorkSliceMs
+    const { promptSuggestionsEnabled, ...plainConfig } = config
+    const parsed = SessionController.Config({ ...plainConfig,
+      ...typeof promptSuggestionsEnabled === 'boolean' ? { promptSuggestionsEnabled } : {},
+    })
+    const enabled = typeof promptSuggestionsEnabled === 'object' ? promptSuggestionsEnabled : parsed.promptSuggestionsEnabled
+    this.listWorkSliceMs = parsed.listWorkSliceMs
+    this.promptSuggestions = new PromptSuggestions(this.ctx, parsed.promptSuggestionTimeoutMs, () => enabled.get())
     this.fileApplications = internals.fileApplications ?? nativeFileApplications
     this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
     this.openPath = internals.openPath ?? openNativeAssociatedPath
@@ -161,6 +185,8 @@ export class SessionController extends TypertRemoteService {
 
   protected async [Service.init](): Promise<void> {
     const ctx = this.ctx
+    // The prompt suggestion preference has a dedicated plugin settings page.
+    ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
     ctx.typert.resources.register('session', { resolve: resolveSessionResource })
     this.agents = new ApiSessionAgentController(ctx)
     this.agents.initialize()
@@ -182,6 +208,8 @@ export class SessionController extends TypertRemoteService {
     this.stateController = new StateController(ctx, this.historyController)
     this.webController = new WebController(ctx, this.historyController, (observation) => { this.promote(observation) })
     this.listState = new ApiSessionList(ctx, this.listWorkSliceMs)
+    await this.promptSuggestions.initialize()
+    ctx.fiber.assertActive()
     await this.commands.initialize()
     ctx.fiber.assertActive()
     await this.listState.initialize()
@@ -463,6 +491,18 @@ export class SessionController extends TypertRemoteService {
       ...(principal === undefined ? {} : { principal }),
     }
     return this.commands.prompt(request, source)
+  }
+
+  /**
+   * Request an optional editable draft for one freshly observed live turn. Only the owner may start generation.
+   * @param request - Session identity and exact eligible `turn/end` sequence.
+   * @param signal - cancellation of this caller, independent of other waiters.
+   * @returns one bounded suggestion, or null if the turn is stale, generation is disabled, or the result is unusable.
+   */
+  @Remote('suggestPrompt')
+  async suggestPrompt(request: SessionSuggestPromptRequest, signal: AbortSignal): Promise<string | null> {
+    if (principalOf(this.ctx.invocation) !== undefined) return null
+    return await this.promptSuggestions.suggest(request, signal)
   }
 
   /**

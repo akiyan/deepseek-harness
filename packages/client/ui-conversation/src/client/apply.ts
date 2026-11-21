@@ -8,7 +8,8 @@ import type { ISessions, SessionBinding } from '@deepseek-ai/dsh-api-session-con
 import { IconPaperclipOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createSnapshotStore, type BoundActions } from '@deepseek-ai/dsh-client-store'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only service and declaration merges used by this assembly.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -40,6 +41,9 @@ import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
+import { PromptSuggestionRow } from './settings/PromptSuggestionRow.tsx'
+import type { PromptSuggestionRowInjected, PromptSuggestionSettings } from './settings/PromptSuggestionRow.tsx'
+import { PROMPT_SUGGESTION_SETTINGS_LOCALES } from './settings/prompt-suggestion-locales.ts'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationContent } from './skeleton/ConversationContent.tsx'
 import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
@@ -57,6 +61,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Conversation shell, composer, queue, and dock copy. */
     conversation: ConversationKey
+    /** akiyan plugin settings copy for the next-message preference. */
+    'settings.promptSuggestion': keyof typeof PROMPT_SUGGESTION_SETTINGS_LOCALES.en
   }
 }
 
@@ -86,6 +92,12 @@ const ABSENT_LEXICON = {
 }
 const ABSENT_MENU_LAUNCHER = {
   getSnapshot: (): string | null => null,
+  subscribe: () => () => {},
+}
+const TRIGGER_MENU_OPEN = { open: true } as const
+const TRIGGER_MENU_CLOSED = { open: false } as const
+const ABSENT_TRIGGER_MENU = {
+  getSnapshot: () => TRIGGER_MENU_CLOSED,
   subscribe: () => () => {},
 }
 const EMPTY_FILE_UPLOADS: DraftFileUploads = {}
@@ -201,6 +213,52 @@ export function apply(ctx: Context, config: SyncedConfig<ConversationConfig>): v
       setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
     }),
   }, EnterBehaviorRow))
+
+  const suggestionSettings = ctx.configForms.get<PromptSuggestionSettings>('session-controller')
+  const promptSuggestionsEnabled = {
+    getSnapshot: () => suggestionSettings.getSnapshot().value?.promptSuggestionsEnabled === true,
+    subscribe: (listener: () => void) => suggestionSettings.subscribe(listener),
+  }
+  ctx.effect(() => ctx.locale.register('settings.promptSuggestion', PROMPT_SUGGESTION_SETTINGS_LOCALES))
+  const tSuggestion = ctx.locale.bind('settings.promptSuggestion')
+  ctx.effect(() => {
+    let unregister: (() => void) | undefined
+    const sync = (): void => {
+      // A Client may be deployed before the Host supports this setting. Both
+      // accepted booleans expose the page; a saved off value must not hide it.
+      const { status, value } = suggestionSettings.getSnapshot()
+      if (status !== 'ready' || typeof value?.promptSuggestionsEnabled !== 'boolean') {
+        unregister?.()
+        unregister = undefined
+      } else {
+        unregister ??= slots.inject('plugins.akiyan', () => slots.register({
+          name: 'plugins.akiyan',
+          id: 'composer-prompt-suggestions',
+          order: 23,
+          label: () => tSuggestion('title'),
+          locale: 'settings.promptSuggestion',
+          inject: (): PromptSuggestionRowInjected => ({
+            hooks: { suggestionSettings },
+            setEnabled: enabled => suggestionSettings.set('promptSuggestionsEnabled', enabled),
+          }),
+        }, PromptSuggestionRow))
+      }
+    }
+    const unsubscribe = suggestionSettings.subscribe(sync)
+    sync()
+    return () => { unsubscribe(); unregister?.() }
+  }, 'ui-conversation: prompt suggestion settings page')
+
+  // The optional Remote must not make the resident composer unavailable to another embedding.
+  let suggestPrompt: ((sessionId: SessionId, turnEndSeq: SessionSeq, signal: AbortSignal) => Promise<string | null>) | undefined
+  ctx.inject(['remote', 'remote.session'], (child) => {
+    suggestPrompt = async (sessionId, turnEndSeq, signal) => {
+      if (!promptSuggestionsEnabled.getSnapshot() || typeof child.remote.session.suggestPrompt !== 'function') return null
+      const result = await child.remote.session.suggestPrompt({ sessionId, turnEndSeq }, signal)
+      return result.ok ? result.value : null
+    }
+    child.effect(() => () => { suggestPrompt = undefined })
+  })
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
@@ -494,12 +552,24 @@ export function apply(ctx: Context, config: SyncedConfig<ConversationConfig>): v
             notices: ABSENT_NOTICES,
             lexicon: ABSENT_LEXICON,
             menuLauncher: ABSENT_MENU_LAUNCHER,
+            triggerMenu: ABSENT_TRIGGER_MENU,
+            promptSuggestionsEnabled,
           },
         }
       }
       const conversation = concreteConversation(ctx)
       const shell = inputHub.shell(sessionId)
       const inputTriggers = inputHub.inputTriggers(sessionId)
+      const isPromptTriggerMenuOpen = (): boolean => inputTriggers !== undefined
+        && (inputTriggers.launcher.getSnapshot() !== null || inputTriggers.menu?.getSnapshot().open === true)
+      const triggerMenu = inputTriggers === undefined ? ABSENT_TRIGGER_MENU : {
+        getSnapshot: () => isPromptTriggerMenuOpen() ? TRIGGER_MENU_OPEN : TRIGGER_MENU_CLOSED,
+        subscribe: (listener: () => void) => {
+          const offLauncher = inputTriggers.launcher.subscribe(listener)
+          const offMenu = inputTriggers.menu?.subscribe(listener)
+          return () => { offMenu?.(); offLauncher() }
+        },
+      }
       const bridge = hostPathBridge()
       return {
         registerFileIntake: fileIntake,
@@ -568,6 +638,8 @@ export function apply(ctx: Context, config: SyncedConfig<ConversationConfig>): v
           },
         stop: () => { stop(sessionId) },
         retry: (failureSeq) => { inputHub.retry(sessionId, failureSeq) },
+        requestPromptSuggestion: (turnEndSeq, signal) => suggestPrompt?.(sessionId, turnEndSeq, signal) ?? Promise.resolve(null),
+        isPromptTriggerMenuOpen,
         hooks: {
           stopShortcut,
           busyEnter: submissionPolicy.busyEnter,
@@ -575,6 +647,8 @@ export function apply(ctx: Context, config: SyncedConfig<ConversationConfig>): v
           notices: shell.notices,
           lexicon: shell.lexicon,
           menuLauncher: inputTriggers?.launcher ?? ABSENT_MENU_LAUNCHER,
+          triggerMenu,
+          promptSuggestionsEnabled,
         },
       }
     },

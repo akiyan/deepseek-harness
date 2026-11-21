@@ -148,6 +148,7 @@ export function apply(ctx: ClientContext): void {
           'plugins.tab': { kind: 'list', scope: 'root' },
           'plugins.item': { kind: 'list', scope: 'root' },
           'plugins.shiguredo': { kind: 'list', scope: 'root' },
+          'plugins.akiyan': { kind: 'list', scope: 'root' },
           'plugins.bundle.activation': { kind: 'keyed', scope: 'root' },
           'plugins.bundle.config': { kind: 'keyed', scope: 'root' },
           'plugins.row.config': { kind: 'keyed', scope: 'root' },

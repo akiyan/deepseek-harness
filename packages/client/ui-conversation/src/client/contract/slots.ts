@@ -571,6 +571,8 @@ export interface ComposerBarOwnerProps {
   occurrence: ConversationContentInputProps['variant']
   /** A feature-owned reason that makes message input inert while leaving model selection live. */
   blocked?: { readonly reason: string }
+  /** Whether an approval or question currently owns this Session's input. */
+  pendingInteraction?: boolean
   /** Lock all message actions while preserving the resident composer surface. */
   disabled?: boolean
   /** Whether the shared Workspace picker is expanded. */
@@ -629,6 +631,10 @@ export interface ComposerBarInjected {
    * @param failureSeq - sequence of the displayed failed turn/end.
    */
   retry: ((failureSeq: SessionSeq) => void) | undefined
+  /** Request a short, unsent suggestion for this Session's just-completed turn. */
+  requestPromptSuggestion?: (turnEndSeq: SessionSeq, signal: AbortSignal) => Promise<string | null>
+  /** Read trigger-menu arbitration immediately before adopting a suggestion. */
+  isPromptTriggerMenuOpen?: () => boolean
   hooks: {
     /** Readable sequence while the fixed Stop command is registered. */
     stopShortcut: ObservableSnapshot<readonly string[]>
@@ -642,6 +648,10 @@ export interface ComposerBarInjected {
     notices: ObservableSnapshot<InputNotice | null>
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
     menuLauncher: ObservableSnapshot<string | null>
+    /** Whether the slash or mention completion menu currently owns Tab. */
+    triggerMenu: ObservableSnapshot<{ readonly open: boolean }>
+    /** The Host's accepted automatic suggestion preference. */
+    promptSuggestionsEnabled: ObservableSnapshot<boolean>
   }
 }
 

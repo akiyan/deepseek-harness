@@ -804,6 +804,7 @@ describe('Session control projection frames', () => {
       {
         type: 'projection', sessionId: session.id, seq: 1, changes: [
           { key: 'sessionListMetadata', val: { blank: false, lastPromptAt: 100 } },
+          { key: 'promptSuggestionTurn', val: null },
         ],
       },
       {

@@ -29,6 +29,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { SubmitOutcome } from '../src/client/contract/input.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import type { PromptHistoryItem } from '../src/client/input/prompt-history.ts'
 import { $replaceDetectSpanWithText, $selectDetectSpan } from '../src/client/input/editor/span-map.ts'
 import type {
   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerFileIntake, DraftFileUploads, InputActivityOwnerProps,
@@ -82,7 +83,14 @@ interface BenchOptions {
   }
   draft?: string
   running?: boolean
+  blank?: boolean
+  openState?: SessionSnapshot['openState']
   retryableFailure?: SessionSeq
+  promptSuggestionTurn?: SessionSeq | null
+  requestPromptSuggestion?: InputBarProps['requestPromptSuggestion']
+  promptSuggestionsEnabled?: boolean
+  pendingInteraction?: boolean
+  promptHistory?: readonly PromptHistoryItem[]
   subagent?: Exclude<SessionSnapshot['subagent'], null>
   disabled?: boolean
   inert?: boolean
@@ -137,6 +145,8 @@ function bench(over?: BenchOptions) {
   const lex = over?.lexicon
   const session = createSnapshotStore<SessionSnapshot>(snapshotOf({
     running: over?.running ?? false,
+    blank: over?.blank ?? false,
+    openState: over?.openState ?? 'open',
     subagent: over?.subagent ?? null,
     removed: over?.disabled ?? false,
     promptError: over?.promptError ?? null,
@@ -151,6 +161,7 @@ function bench(over?: BenchOptions) {
       'next-step': over?.nextStep ?? [],
     }),
     ...(over?.steerQueue !== undefined ? { steerQueue: over.steerQueue } : {}),
+    promptHistory: () => over?.promptHistory ?? [],
     // Lexicon-only stub: adjudication untouched (undefined slash methods are
     // never reached — these benches drive plain-draft flows only).
     ...(lex !== undefined
@@ -168,6 +179,10 @@ function bench(over?: BenchOptions) {
   const retry = vi.fn()
   const removeAttachment = vi.fn((id: DraftAttachmentId) => { shell.removeAttachment(id) })
   const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
+  const triggerMenu = createSnapshotStore({ open: over?.commandMenuOpen === true })
+  const suggestionTurn = createSnapshotStore<SessionSeq | null | undefined>(over?.promptSuggestionTurn)
+  const suggestionPreference = createSnapshotStore(over?.promptSuggestionsEnabled ?? true)
+  const useSuggestionTurn = bindSnapshotSelector(suggestionTurn)
   const busyEnter = createSnapshotStore<'queue' | 'steer'>(over?.busyEnter ?? 'queue')
   const stopShortcut = createSnapshotStore<readonly string[]>(['Esc', 'Esc'])
   const slotCalls: { key: string; owner: unknown }[] = []
@@ -203,13 +218,14 @@ function bench(over?: BenchOptions) {
     useContextMenu: contextMenuHook(),
     useAccess: endpoint => !(over?.deniedEndpoints ?? []).includes(endpoint),
     useProjection: ((key: string, selector: (v: unknown) => unknown = v => v) =>
-      selector(key === 'plan'
-        ? over?.plan
-        : key === 'goal' ? over?.goal
-          : key === 'conversationContinuation' ? over?.retryableFailure
-            : key === 'inbox' ? { 'next-turn': over?.queue ?? [], 'next-step': over?.nextStep ?? [] }
-              : key === 'imageLimits' ? over?.imageLimits
-                : key === 'contextPressure' ? over?.contextPressure : undefined)),
+      key === 'promptSuggestionTurn' ? useSuggestionTurn(selector)
+        : selector(key === 'plan'
+          ? over?.plan
+          : key === 'goal' ? over?.goal
+            : key === 'conversationContinuation' ? over?.retryableFailure
+              : key === 'inbox' ? { 'next-turn': over?.queue ?? [], 'next-step': over?.nextStep ?? [] }
+                : key === 'imageLimits' ? over?.imageLimits
+                  : key === 'contextPressure' ? over?.contextPressure : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -229,6 +245,11 @@ function bench(over?: BenchOptions) {
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
+    useTriggerMenu: bindSnapshotSelector(triggerMenu),
+    usePromptSuggestionsEnabled: bindSnapshotSelector(suggestionPreference),
+    isPromptTriggerMenuOpen: () => triggerMenu.getSnapshot().open,
+    ...(over?.requestPromptSuggestion === undefined ? {} : { requestPromptSuggestion: over.requestPromptSuggestion }),
+    pendingInteraction: over?.pendingInteraction ?? false,
     stop,
     // Mirrors the real lookup chain (conversation namespace, then common).
     t: over?.t ?? makeTranslate(zh, commonZh),
@@ -272,7 +293,7 @@ function bench(over?: BenchOptions) {
   const interruptButton = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止生成"]')
   return {
     view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, removeAttachment, slotCalls,
-    menuLauncher, busyEnter, stopShortcut, retry,
+    menuLauncher, triggerMenu, suggestionTurn, suggestionPreference, busyEnter, stopShortcut, retry,
     steerQueue: over?.steerQueue,
     get placeholder() { return placeholderOf(view.container) },
     get inputDisabled() { return textarea.getAttribute('aria-disabled') === 'true' },
@@ -325,6 +346,254 @@ function editableOf(input: HTMLElement): boolean {
 function writeDraft(shell: SessionInputShell, text: string): void {
   act(() => { shell.setDraft(text) })
 }
+
+describe('follow-up prompt suggestions', () => {
+  const candidate = 'Could you show a small example?'
+  const suggestionLabel = '插入建议的消息'
+  type Suggest = NonNullable<InputBarProps['requestPromptSuggestion']>
+  const request = () => vi.fn<Suggest>().mockResolvedValue(candidate)
+  const suggestionButton = ({ view }: ReturnType<typeof bench>) => view.queryByRole('button', { name: suggestionLabel })
+
+  it('takes a ready history baseline without requesting an old completion, including after a reconnect', async () => {
+    const suggest = request()
+    const b = bench({ requestPromptSuggestion: suggest, openState: 'loading', promptSuggestionTurn: 10 as SessionSeq })
+    act(() => { b.session.set(snapshotOf()) })
+    expect(suggest).not.toHaveBeenCalled()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+
+    act(() => { b.suggestionTurn.set(undefined) })
+    await act(async () => { b.suggestionTurn.set(20 as SessionSeq) })
+    expect(suggest).not.toHaveBeenCalled()
+    expect(suggestionButton(b)).toBeNull()
+    await act(async () => { b.suggestionTurn.set(30 as SessionSeq) })
+    expect(suggest).toHaveBeenCalledExactlyOnceWith(30, expect.any(AbortSignal))
+    expect(suggestionButton(b)).not.toBeNull()
+  })
+
+  it('waits for idle, previews outside the draft, and inserts with plain Tab as one undo step without sending', async () => {
+    const suggest = request()
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null, running: true })
+    act(() => { b.suggestionTurn.set(20 as SessionSeq) })
+    expect(suggest).not.toHaveBeenCalled()
+    await act(async () => { b.session.set(snapshotOf()) })
+    expect(suggest).toHaveBeenCalledExactlyOnceWith(20, expect.any(AbortSignal))
+
+    const preview = b.view.getByText(candidate)
+    expect(b.textarea.contains(preview)).toBe(false)
+    expect(b.view.container.querySelector('[data-composer-placeholder]')).toBeNull()
+    expect(b.textarea.getAttribute('aria-describedby')).toBe(preview.id)
+    expect(suggestionButton(b)?.getAttribute('aria-describedby')).toBe(preview.id)
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(b.view.getByRole('button', { name: '发送消息' }).hasAttribute('disabled')).toBe(true)
+    for (const modifier of [{ shiftKey: true }, { metaKey: true }, { ctrlKey: true }, { altKey: true }, { repeat: true }]) {
+      expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9, ...modifier })).toBe(true)
+      expect(b.shell.snapshot.draft).toBe('')
+    }
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(false)
+    await act(async () => {})
+    expect(b.shell.snapshot.draft).toBe(candidate)
+    expect(b.view.getByRole('button', { name: '发送消息' }).hasAttribute('disabled')).toBe(false)
+    expect(suggestionButton(b)).toBeNull()
+    expect(b.sink).not.toHaveBeenCalled()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+
+    fireEvent.keyDown(b.textarea, { key: 'z', keyCode: 90, ctrlKey: true })
+    act(() => { b.shell.editor.update(() => {}, { discrete: true }) })
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(suggestionButton(b)).not.toBeNull()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(false)
+    await act(async () => {})
+    expect(b.shell.snapshot.draft).toBe(candidate)
+    expect(suggest).toHaveBeenCalledOnce()
+    expect(b.sink).not.toHaveBeenCalled()
+  })
+
+  it('shows an adopted suggestion only after a full clear, gives the trigger menu priority, and honors Escape', async () => {
+    const suggest = request()
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null })
+    await act(async () => { b.suggestionTurn.set(1 as SessionSeq) })
+    fireEvent.click(b.view.getByRole('button', { name: suggestionLabel }))
+    expect(b.shell.snapshot.draft).toBe(candidate)
+    expect(fireEvent.keyDown(b.textarea, { key: 'Escape' })).toBe(true)
+    fireEvent.compositionStart(b.textarea)
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    fireEvent.compositionEnd(b.textarea, { data: '次' })
+    await act(async () => {})
+    writeDraft(b.shell, ' ')
+    expect(suggestionButton(b)).toBeNull()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+
+    writeDraft(b.shell, '')
+    expect(suggestionButton(b)).not.toBeNull()
+    act(() => {
+      b.triggerMenu.set({ open: true })
+      expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    })
+    expect(suggestionButton(b)).toBeNull()
+    expect(b.shell.snapshot.draft).toBe('')
+    act(() => { b.triggerMenu.set({ open: false }) })
+    expect(suggestionButton(b)).not.toBeNull()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Escape' })).toBe(false)
+    expect(suggestionButton(b)).toBeNull()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    expect(suggest).toHaveBeenCalledOnce()
+    expect(b.sink).not.toHaveBeenCalled()
+  })
+
+  it('never carries an adopted suggestion into a new turn or session', async () => {
+    const suggest = request()
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null })
+    await act(async () => { b.suggestionTurn.set(1 as SessionSeq) })
+    fireEvent.click(b.view.getByRole('button', { name: suggestionLabel }))
+    await act(async () => { b.shell.submit() })
+    expect(b.sink).toHaveBeenCalledOnce()
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(suggestionButton(b)).toBeNull()
+
+    await act(async () => { b.suggestionTurn.set(2 as SessionSeq) })
+    fireEvent.click(b.view.getByRole('button', { name: suggestionLabel }))
+    b.view.rerender(<InputBar {...b.props} sessionId={'s2' as SessionId} />)
+    writeDraft(b.shell, '')
+    expect(suggestionButton(b)).toBeNull()
+    expect(suggest).toHaveBeenCalledTimes(2)
+  })
+
+  it('dismisses with Escape and focuses the draft after using the insert button for a later completion', async () => {
+    const suggest = request()
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null })
+    await act(async () => { b.suggestionTurn.set(1 as SessionSeq) })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Escape' })).toBe(false)
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(suggestionButton(b)).toBeNull()
+    expect(b.view.container.querySelector('[data-composer-placeholder]')).not.toBeNull()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Escape' })).toBe(true)
+
+    await act(async () => { b.suggestionTurn.set(2 as SessionSeq) })
+    const insertion = b.view.getByRole('button', { name: suggestionLabel })
+    act(() => { insertion.focus() })
+    expect(document.activeElement).toBe(insertion)
+    fireEvent.click(insertion)
+    expect(b.shell.snapshot.draft).toBe(candidate)
+    expect(b.sink).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(b.textarea)
+  })
+
+  it('does not overwrite edits or resurrect the preview after typing and then erasing', async () => {
+    const late = Promise.withResolvers<string | null>()
+    const suggest = request().mockReturnValueOnce(late.promise)
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null })
+    act(() => { b.suggestionTurn.set(1 as SessionSeq) })
+    const signal = suggest.mock.calls[0]![1]
+    expect(signal.aborted).toBe(false)
+    act(() => {
+      b.shell.setDraft(' ')
+      b.shell.setDraft('')
+    })
+    expect(signal.aborted).toBe(true)
+    await act(async () => { late.resolve(candidate) })
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(suggestionButton(b)).toBeNull()
+    expect(suggest).toHaveBeenCalledOnce()
+  })
+
+  it('aborts on preference changes, session switching, and unmount without showing a late response', async () => {
+    const pending = Promise.withResolvers<string | null>()
+    const suggest = request().mockReturnValue(pending.promise)
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null })
+    act(() => { b.suggestionTurn.set(1 as SessionSeq) })
+    act(() => { b.suggestionPreference.set(false) })
+    expect(suggest.mock.calls[0]![1].aborted).toBe(true)
+    act(() => { b.suggestionPreference.set(true) })
+    expect(suggest).toHaveBeenCalledOnce()
+    act(() => { b.suggestionTurn.set(2 as SessionSeq) })
+    b.view.rerender(<InputBar {...b.props} sessionId={'s2' as SessionId} />)
+    expect(suggest.mock.calls[1]![1].aborted).toBe(true)
+    expect(suggest).toHaveBeenCalledTimes(2)
+    act(() => { b.suggestionTurn.set(3 as SessionSeq) })
+    b.view.unmount()
+    expect(suggest.mock.calls[2]![1].aborted).toBe(true)
+    await act(async () => { pending.resolve(candidate) })
+    expect(suggestionButton(b)).toBeNull()
+  })
+
+  it('leaves ordinary composing unchanged when the host returns nothing or fails', async () => {
+    const suggest = request().mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('request failed'))
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null })
+    for (const turn of [1, 2]) {
+      await act(async () => { b.suggestionTurn.set(turn as SessionSeq) })
+      expect(suggestionButton(b)).toBeNull()
+      expect(b.view.container.querySelector('[data-composer-placeholder]')).not.toBeNull()
+      expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    }
+    expect(suggest).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { promptSuggestionsEnabled: false }, { disabled: true }, { inert: true }, { blocked: { reason: 'Select a model' } },
+    { variant: 'hero' }, { occurrence: 'embedded' }, { blank: true }, { pendingInteraction: true },
+    { subagent: CONTINUABLE_CHILD }, { draft: ' ' }, { queue: [row('queued')] }, { nextStep: [row('steering')] },
+    { deniedEndpoints: ['session/prompt'] }, { deniedEndpoints: ['session/suggestPrompt'] }, { commandMenuOpen: true },
+    { attachments: [{ kind: 'image', id: 'image' as DraftAttachmentId, file: new File([], 'x.png'), previewUrl: 'blob:test' }] },
+  ] satisfies BenchOptions[])('does not request a suggestion with %j', (options) => {
+    const suggest = request()
+    const b = bench({ ...options, requestPromptSuggestion: suggest, promptSuggestionTurn: null })
+    act(() => { b.suggestionTurn.set(1 as SessionSeq) })
+    expect(suggest).not.toHaveBeenCalled()
+    expect(suggestionButton(b)).toBeNull()
+  })
+
+  it('leaves Tab to an open trigger menu with no highlight instead of adopting a stale preview', async () => {
+    const b = bench({ requestPromptSuggestion: request(), promptSuggestionTurn: null })
+    await act(async () => { b.suggestionTurn.set(1 as SessionSeq) })
+    expect(suggestionButton(b)).not.toBeNull()
+    // The menu is authoritative before React commits the hidden preview.
+    act(() => {
+      b.triggerMenu.set({ open: true })
+      expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    })
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(suggestionButton(b)).toBeNull()
+    act(() => { b.triggerMenu.set({ open: false }) })
+    expect(suggestionButton(b)).toBeNull()
+  })
+
+  it('discards an in-flight preview when prompt history opens, even after returning to an empty draft', async () => {
+    const pending = Promise.withResolvers<string | null>()
+    const suggest = request().mockReturnValueOnce(pending.promise)
+    const oldPrompt = { id: 'history' as PromptHistoryItem['id'], text: 'An older question' }
+    const b = bench({ requestPromptSuggestion: suggest, promptSuggestionTurn: null, promptHistory: [oldPrompt] })
+    act(() => { b.suggestionTurn.set(1 as SessionSeq) })
+    expect(fireEvent.keyDown(b.textarea, { key: 'ArrowUp' })).toBe(false)
+    expect(b.shell.snapshot.draft).toBe(oldPrompt.text)
+    expect(fireEvent.keyDown(b.textarea, { key: 'ArrowDown' })).toBe(false)
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(suggest.mock.calls[0]![1].aborted).toBe(true)
+    await act(async () => { pending.resolve(candidate) })
+    expect(suggestionButton(b)).toBeNull()
+  })
+
+  it('preserves Tab and Escape during composition and the late Safari closing keydown', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const b = bench({ requestPromptSuggestion: request(), promptSuggestionTurn: null })
+    await act(async () => { b.suggestionTurn.set(1 as SessionSeq) })
+    expect(suggestionButton(b)).not.toBeNull()
+    fireEvent.compositionStart(b.textarea)
+    expect(suggestionButton(b)).toBeNull()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    expect(fireEvent.keyDown(b.textarea, { key: 'Escape' })).toBe(true)
+    fireEvent.compositionEnd(b.textarea, { data: '' })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    expect(b.shell.snapshot.draft).toBe('')
+    await act(async () => {})
+    vi.advanceTimersByTime(11)
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 229 })).toBe(true)
+    expect(b.shell.snapshot.draft).toBe('')
+    expect(b.view.container.querySelector('[data-composer-prompt-suggestion]')).toBeNull()
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 9 })).toBe(true)
+    expect(b.shell.snapshot.draft).toBe('')
+  })
+})
 
 describe('composer focus handoff', () => {
   it.each(['hero', 'composer'] as const)('focuses the %s editor when its card background is pressed', (variant) => {

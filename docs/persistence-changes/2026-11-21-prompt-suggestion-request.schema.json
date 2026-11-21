@@ -1,0 +1,16 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {"key":"event:session/prompt-suggestion-request","kind":"event","event":"session/prompt-suggestion-request","surface":false,"digest":"6ee4248f6fd997e16a71ecd3df9421921ec0b895852613546983841b8c27d9ff"}
+  ],
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "07e1a58c58b593f5": {"kind":"object","properties":[{"name":"model","type":"4cd48f3e5108bd6e","optional":false},{"name":"provider","type":"4cd48f3e5108bd6e","optional":false}],"indices":[]},
+    "40e0e4b0bb1f179c": {"kind":"object","properties":[{"name":"input","type":"4cd48f3e5108bd6e","optional":false},{"name":"maxTokens","type":"0657d3ca5ac4e7bf","optional":false},{"name":"reasoningEffort","type":"4cd48f3e5108bd6e","optional":true},{"name":"route","type":"07e1a58c58b593f5","optional":false},{"name":"system","type":"4cd48f3e5108bd6e","optional":false},{"name":"turnEndSeq","type":"0657d3ca5ac4e7bf","optional":false}],"indices":[]},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "6ee4248f6fd997e1": {"kind":"object","properties":[{"name":"data","type":"40e0e4b0bb1f179c","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"aa742f5badb0c4e9","optional":false}],"indices":[]},
+    "aa742f5badb0c4e9": {"kind":"literal","value":"session/prompt-suggestion-request"},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true}
+  }
+}

@@ -128,6 +128,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path
   'session/search': 'owner-only', // owner searches across Sessions
   'session/selectModel': 'owner-only', // owner selects a Session model
+  'session/suggestPrompt': 'owner-only', // only the owner can start auxiliary inference for the Session
   'session/updateQueue': 'owner-only', // owner edits queued input
   'session/workspacePathApplications': 'owner-only', // owner applies a Workspace path
   'sessionStatus/follow': 'owner-only', // owner reading reminders

@@ -100,6 +100,8 @@ export interface InputTriggerHit {
 /** Structural per-Session trigger provider consumed by the input shell. */
 export interface InputTriggerController {
   readonly launcher: ObservableSnapshot<string | null>
+  /** Menu availability independent of the launcher; providers without it expose only launcher state. */
+  readonly menu?: ObservableSnapshot<{ readonly open: boolean }>
   readonly lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
   /** @param draft - current draft. @param caret - caret offset. @param guard - availability tier. @param draftRev - input revision. */
   track(

@@ -33,6 +33,23 @@ describe('Switch', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('refuses activation during a pending save without moving the tab stop', () => {
+    const onChange = vi.fn()
+    const { rerender } = render(<Switch checked={false} autoFocus label="Toggle" onChange={onChange} />)
+    const control = screen.getByRole('switch') as HTMLButtonElement
+    rerender(<Switch checked={false} busy label="Toggle" onChange={onChange} />)
+    expect(control.disabled).toBe(false)
+    expect(control.getAttribute('aria-busy')).toBe('true')
+    expect(control.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(control)
+    fireEvent.click(control)
+    expect(onChange).not.toHaveBeenCalled()
+    rerender(<Switch checked={false} label="Toggle" onChange={onChange} />)
+    expect(control.getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(control)
+    expect(onChange).toHaveBeenCalledWith(true)
+  })
+
   it('carries a lock reason as the hover title when the owner names one', () => {
     render(<Switch checked={false} disabled label="Toggle" title="Managed by policy" onChange={() => {}} />)
     expect(screen.getByRole('switch').getAttribute('title')).toBe('Managed by policy')

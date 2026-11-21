@@ -3,6 +3,11 @@
   "entries": [
     {
       "doc": "docs/subsystems/session.md",
+      "symbol": "SessionSuggestPromptRequest",
+      "source": "packages/api/session-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session.md",
       "symbol": "SessionLogUploadRequest",
       "source": "packages/session/session-log-deepseek/src/types.ts"
     },
@@ -180,6 +185,11 @@
       "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "ConfigureCall",
       "source": "packages/llm/llm/src/call-config.ts"
+    },
+    {
+      "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "LlmPrepareCallOptions",
+      "source": "packages/llm/llm/src/index.ts"
     },
     {
       "doc": "docs/subsystems/llm-streaming.md",

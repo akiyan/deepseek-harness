@@ -22,51 +22,58 @@
  * @module dsh-llm-pi-ai/bundled-catalog
  */
 
-import type { Api, Model, ModelCost, ModelThinkingLevel, ThinkingLevelMap } from '@earendil-works/pi-ai'
+import type { Api, Model, ModelCost, ModelThinkingLevel, OpenAICompletionsCompat, ThinkingLevelMap } from '@earendil-works/pi-ai'
 import type { PiAiPeakDay } from './peak.ts'
 
 /**
  * The reasoning levels a bundled model may offer, in pi-ai's escalation order.
- *
- * A model's `/api/show` entry reports a narrower set, but that set describes
- * the level the model likes rather than what a request may name: the endpoint
- * accepts every level here on every reasoning model and maps each onto that
- * model's own thinking budget, so offering only the reported subset would
- * withhold levels that measurably change how much the model thinks.
+ * A level a model's {@link BundledEfforts} does not name is pinned unsupported.
  */
 const REASONING_LEVELS: readonly ModelThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 
 /**
- * The wire value that stops a model whose endpoint honours it. Ollama's
- * reasoning parameter is `none` rather than an absent field, because omitting
- * it selects the model's own default — which is thinking for every model here.
+ * The wire spelling each offered reasoning level is sent as. A level absent
+ * here is one the endpoint rejects or ignores, so selectors never offer it.
+ * `off` is offered only when the value it names actually stops the model from
+ * reasoning; when no level is selected, pi-ai sends that `off` value, and a
+ * model without one is sent no reasoning parameter at all.
  */
-const OFF_WIRE_VALUE = 'none'
+export type BundledEfforts = Readonly<Partial<Record<ModelThinkingLevel, string>>>
 
 /**
  * The thinking-level map for one reasoning model.
  *
- * Every level carries its own wire spelling and every level the model cannot be
- * asked for is pinned to `null`, because pi-ai's own defaulting is asymmetric —
- * an absent key means "supported" for the five base levels but "unsupported"
- * for `xhigh`/`max`. `off` is the one level with a model-dependent answer: a
- * model whose endpoint keeps reasoning whatever it is asked declares `off:
- * null`, which both withholds the level and makes pi-ai drop the reasoning
- * field entirely, so the control never claims something the model does not do.
- *
- * The pinned null matters beyond the control: pi-ai renders the reasoning field
- * from this map when a request names no level, so a model with a working `off`
- * sends the value that suppresses thinking and one without it sends nothing.
- * @param supportsOff - whether asking this model for `off` actually stops it from reasoning.
+ * Every level is decided explicitly: offered levels carry their wire spelling
+ * and every other level is pinned to `null`, because pi-ai's own defaulting is
+ * asymmetric — an absent key means "supported" for the five base levels but
+ * "unsupported" for `xhigh`/`max`. A pinned `off` both withholds the level and
+ * makes pi-ai drop the reasoning field when a request names no level.
+ * @param efforts - the offered levels and their wire spellings.
  * @returns the map pi-ai's level selection and request rendering read.
  */
-function reasoningLevels(supportsOff: boolean): ThinkingLevelMap {
+function reasoningLevels(efforts: BundledEfforts): ThinkingLevelMap {
   const map: ThinkingLevelMap = {}
-  for (const level of REASONING_LEVELS) {
-    if (level !== 'off') map[level] = level
-  }
-  map.off = supportsOff ? OFF_WIRE_VALUE : null
+  for (const level of REASONING_LEVELS) map[level] = efforts[level] ?? null
   return map
+}
+
+/**
+ * Ollama Cloud's levels: the endpoint accepts every level on every reasoning
+ * model and maps each onto that model's own thinking budget. A model's
+ * `/api/show` entry reports a narrower set, but that set describes the level
+ * the model likes rather than what a request may name, so offering only the
+ * reported subset would withhold levels that measurably change how much the
+ * model thinks. Ollama's reasoning parameter is `none` rather than an absent
+ * field, because omitting it selects the model's own default — which is
+ * thinking for every model here.
+ */
+const OLLAMA_EFFORTS: BundledEfforts = {
+  off: 'none', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
+}
+
+/** {@link OLLAMA_EFFORTS} for a model whose endpoint keeps reasoning when asked for `none`. */
+const OLLAMA_EFFORTS_ALWAYS_ON: BundledEfforts = {
+  minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
 }
 
 /**
@@ -102,10 +109,8 @@ export interface BundledModel {
   readonly maxTokens: number
   /** Request modalities the model accepts. */
   readonly input: readonly ('text' | 'image')[]
-  /** Whether the model produces reasoning output. */
-  readonly reasoning: boolean
-  /** Whether asking for `off` stops this model from reasoning; only meaningful when {@link reasoning}. */
-  readonly supportsOff: boolean
+  /** Reasoning levels the model offers; absent for a model that does not reason. */
+  readonly efforts?: BundledEfforts
   /**
    * Peak-pricing window the provider bills this model at peak in. Absent when
    * the provider prices the model the same all day. A price policy is not a
@@ -125,6 +130,12 @@ export interface BundledProvider {
   readonly baseURL: string
   /** Wire protocol every model on the route speaks. */
   readonly api: Api
+  /**
+   * Chat Completions compatibility switches every model on the route carries,
+   * for an endpoint pi-ai cannot recognize from its URL. A profile's own
+   * `compat` still wins field by field.
+   */
+  readonly compat?: OpenAICompletionsCompat
   /** The route's models, in directory order. */
   readonly models: readonly BundledModel[]
 }
@@ -133,9 +144,9 @@ export interface BundledProvider {
  * Ollama Cloud.
  *
  * `contextWindow` and `input` come from `/api/show`
- * (`<architecture>.context_length` and `capabilities`). `reasoning` and
- * `supportsOff` come from the provider's own `thinking.values`, which names
- * `false` exactly when thinking can be turned off — measuring "does a reasoning
+ * (`<architecture>.context_length` and `capabilities`). Whether a model's
+ * `efforts` offer `off` comes from the provider's own `thinking.values`, which
+ * names `false` exactly when thinking can be turned off — measuring "does a reasoning
  * item come back" is not a substitute, because a model that thinks always
  * simply stops reporting the item when asked for `off` while still thinking.
  *
@@ -167,33 +178,73 @@ const OLLAMA_CLOUD: BundledProvider = {
   baseURL: 'https://ollama.com/v1',
   api: 'openai-responses',
   models: [
-    { id: 'beam', name: 'Beam', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: false },
-    { id: 'deepseek-v4.1-flash:1017', name: 'DeepSeek-V4.1-Flash', contextWindow: 1_048_576, maxTokens: 393_216, input: ['text', 'image'], reasoning: true, supportsOff: true, peakWindow: OLLAMA_PEAK },
-    { id: 'deepseek-v4-pro:0813', name: 'DeepSeek V4 Pro', contextWindow: 1_048_576, maxTokens: 65_536, input: ['text'], reasoning: true, supportsOff: true, peakWindow: OLLAMA_PEAK },
-    { id: 'gemma4:31b', name: 'Gemma 4 31B', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'glm-5.2', name: 'GLM 5.2', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: true },
-    { id: 'glm-5.3', name: 'GLM 5.3', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: false },
-    { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: false },
-    { id: 'gpt-oss:120b', name: 'GPT-OSS 120B', contextWindow: 131_072, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: false },
-    { id: 'gpt-oss:20b', name: 'GPT-OSS 20B', contextWindow: 131_072, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: false },
-    { id: 'inkling-2-small', name: 'Inkling 2 Small', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'kimi-k2.6', name: 'Kimi K2.6', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'kimi-k3', name: 'Kimi K3', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'kimi-k3.1-pro', name: 'Kimi K3.1 Pro', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'mimo-v2.6-flash', name: 'MiMo V2.6 Flash', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'mimo-v2.6-pro', name: 'MiMo V2.6 Pro', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'minimax-m3', name: 'MiniMax M3', contextWindow: 512_000, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: false },
-    { id: 'minimax-m3.1-flash', name: 'MiniMax M3.1 Flash', contextWindow: 1_000_000, maxTokens: 524_288, input: ['text', 'image'], reasoning: true, supportsOff: false },
-    { id: 'mistral-large-4', name: 'Mistral Large 4', contextWindow: 1_048_576, maxTokens: 262_144, input: ['text', 'image'], reasoning: true, supportsOff: false },
-    { id: 'muse-spark-open', name: 'Muse Spark Open', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: true },
-    { id: 'nemotron-3-super', name: 'Nemotron 3 Super', contextWindow: 262_144, maxTokens: 65_536, input: ['text'], reasoning: true, supportsOff: true },
-    { id: 'nemotron-3-ultra', name: 'Nemotron 3 Ultra', contextWindow: 262_144, maxTokens: 65_536, input: ['text'], reasoning: true, supportsOff: true },
+    { id: 'beam', name: 'Beam', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'deepseek-v4.1-flash:1017', name: 'DeepSeek-V4.1-Flash', contextWindow: 1_048_576, maxTokens: 393_216, input: ['text', 'image'], efforts: OLLAMA_EFFORTS, peakWindow: OLLAMA_PEAK },
+    { id: 'deepseek-v4-pro:0813', name: 'DeepSeek V4 Pro', contextWindow: 1_048_576, maxTokens: 65_536, input: ['text'], efforts: OLLAMA_EFFORTS, peakWindow: OLLAMA_PEAK },
+    { id: 'gemma4:31b', name: 'Gemma 4 31B', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'glm-5.2', name: 'GLM 5.2', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], efforts: OLLAMA_EFFORTS },
+    { id: 'glm-5.3', name: 'GLM 5.3', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'gpt-oss:120b', name: 'GPT-OSS 120B', contextWindow: 131_072, maxTokens: 131_072, input: ['text'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'gpt-oss:20b', name: 'GPT-OSS 20B', contextWindow: 131_072, maxTokens: 131_072, input: ['text'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'inkling-2-small', name: 'Inkling 2 Small', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'kimi-k2.6', name: 'Kimi K2.6', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'kimi-k3', name: 'Kimi K3', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'kimi-k3.1-pro', name: 'Kimi K3.1 Pro', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'mimo-v2.6-flash', name: 'MiMo V2.6 Flash', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'mimo-v2.6-pro', name: 'MiMo V2.6 Pro', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'minimax-m3', name: 'MiniMax M3', contextWindow: 512_000, maxTokens: 131_072, input: ['text', 'image'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'minimax-m3.1-flash', name: 'MiniMax M3.1 Flash', contextWindow: 1_000_000, maxTokens: 524_288, input: ['text', 'image'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'mistral-large-4', name: 'Mistral Large 4', contextWindow: 1_048_576, maxTokens: 262_144, input: ['text', 'image'], efforts: OLLAMA_EFFORTS_ALWAYS_ON },
+    { id: 'muse-spark-open', name: 'Muse Spark Open', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], efforts: OLLAMA_EFFORTS },
+    { id: 'nemotron-3-super', name: 'Nemotron 3 Super', contextWindow: 262_144, maxTokens: 65_536, input: ['text'], efforts: OLLAMA_EFFORTS },
+    { id: 'nemotron-3-ultra', name: 'Nemotron 3 Ultra', contextWindow: 262_144, maxTokens: 65_536, input: ['text'], efforts: OLLAMA_EFFORTS },
+  ],
+}
+
+/** The OpenAI-style levels a Sakura AI Engine reasoning model accepts. */
+const SAKURA_EFFORTS: BundledEfforts = { low: 'low', medium: 'medium', high: 'high' }
+
+/** {@link SAKURA_EFFORTS} for a model that stops reasoning when asked for `none`. */
+const SAKURA_EFFORTS_WITH_OFF: BundledEfforts = { off: 'none', ...SAKURA_EFFORTS }
+
+/**
+ * Sakura AI Engine (さくらのAI Engine), served over Chat Completions.
+ *
+ * Context windows, output caps, and vision support come from the service's
+ * published chat-model specification; the endpoint rejects a request whose
+ * input plus `max_tokens` exceeds the context window, and it ignores
+ * `max_completion_tokens`, which is why the route sends `max_tokens`. Only
+ * models that accept `tools` are listed, because every agent request carries
+ * them and the endpoint rejects `tools` on the others with HTTP 400.
+ *
+ * `efforts` were measured against the endpoint: `gpt-oss-120b` rejects every
+ * level except `low`, `medium`, and `high`, and rejects `none`; the DeepSeek
+ * entry rejects `minimal` and `medium` but accepts `xhigh` and `max`. `none`
+ * stops reasoning on Gemma, Qwen, and DeepSeek. Kimi and GLM keep reasoning
+ * when asked for `none` — Kimi then writes its reasoning into the answer — so
+ * neither offers `off`. Gemma does not reason unless a level is named, which
+ * matches the `none` sent when no level is selected.
+ */
+const SAKURA_AI_ENGINE: BundledProvider = {
+  id: 'sakura-ai-engine',
+  name: 'Sakura AI Engine',
+  baseURL: 'https://api.ai.sakura.ad.jp/v1',
+  api: 'openai-completions',
+  compat: { maxTokensField: 'max_tokens' },
+  models: [
+    { id: 'gpt-oss-120b', name: 'GPT-OSS 120B', contextWindow: 131_072, maxTokens: 32_000, input: ['text'], efforts: SAKURA_EFFORTS },
+    { id: 'preview/DeepSeek-V4.1-Flash-1017', name: 'DeepSeek-V4.1-Flash (preview)', contextWindow: 1_048_575, maxTokens: 32_000, input: ['text', 'image'], efforts: { off: 'none', low: 'low', high: 'high', xhigh: 'xhigh', max: 'max' } },
+    { id: 'preview/GLM-5.3-Flash', name: 'GLM 5.3 Flash (preview)', contextWindow: 1_048_575, maxTokens: 32_000, input: ['text', 'image'], efforts: SAKURA_EFFORTS },
+    { id: 'preview/Kimi-K2.7-Code', name: 'Kimi K2.7 Code (preview)', contextWindow: 262_144, maxTokens: 32_000, input: ['text', 'image'], efforts: SAKURA_EFFORTS },
+    { id: 'preview/Qwen3.6-35B-A3B', name: 'Qwen3.6 35B A3B (preview)', contextWindow: 262_144, maxTokens: 32_000, input: ['text', 'image'], efforts: SAKURA_EFFORTS_WITH_OFF },
+    { id: 'preview/gemma-4-31B-it', name: 'Gemma 4 31B (preview)', contextWindow: 262_144, maxTokens: 32_000, input: ['text', 'image'], efforts: SAKURA_EFFORTS_WITH_OFF },
   ],
 }
 
 /** Every bundled route. Configuration surfaces sort the merged catalog, so this order only fixes which routes exist. */
-export const BUNDLED_PROVIDERS: readonly BundledProvider[] = [OLLAMA_CLOUD]
+export const BUNDLED_PROVIDERS: readonly BundledProvider[] = [OLLAMA_CLOUD, SAKURA_AI_ENGINE]
 
 /** Bundled routes by id. */
 const BY_ID: ReadonlyMap<string, BundledProvider> = new Map(BUNDLED_PROVIDERS.map(entry => [entry.id, entry]))
@@ -240,8 +291,9 @@ export function bundledModel(provider: string, bundle: BundledProvider, entry: B
     api: bundle.api,
     provider,
     baseUrl: bundle.baseURL,
-    reasoning: entry.reasoning,
-    ...entry.reasoning ? { thinkingLevelMap: reasoningLevels(entry.supportsOff) } : {},
+    reasoning: entry.efforts !== undefined,
+    ...entry.efforts === undefined ? {} : { thinkingLevelMap: reasoningLevels(entry.efforts) },
+    ...bundle.compat === undefined ? {} : { compat: { ...bundle.compat } },
     input: [...entry.input],
     cost: NO_COST,
     contextWindow: entry.contextWindow,

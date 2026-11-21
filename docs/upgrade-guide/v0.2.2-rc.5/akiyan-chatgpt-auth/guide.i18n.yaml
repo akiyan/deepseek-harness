@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.5/akiyan-chatgpt-auth/guide.md
+/:
+  en: 021a065d823ab987
+  zh: 19234d1ac693025e
+/use-upstream-chatgpt-authentication-in-the-akiyan-fork:
+  en: 70247f5ea25f37b0
+  zh: b3a0679b867e926b
+/use-upstream-chatgpt-authentication-in-the-akiyan-fork/change:
+  en: 7540a7cd0c87a836
+  zh: f39dccf144a992a6
+/use-upstream-chatgpt-authentication-in-the-akiyan-fork/migration:
+  en: 569297e29eccf48a
+  zh: bdb9a3afadc0198a

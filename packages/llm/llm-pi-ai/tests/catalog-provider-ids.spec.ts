@@ -22,7 +22,7 @@ describe('catalog provider ids', () => {
   it('drops a provider that lists only non-chat models and keeps one that lists none', () => {
     // The bundled routes share the list: they are part of what this build
     // describes even though pi-ai ships nothing for them.
-    expect(catalogProviderIds()).toEqual(['chat-provider', 'ollama-cloud', 'uncataloged-provider'])
+    expect(catalogProviderIds()).toEqual(['chat-provider', 'ollama-cloud', 'sakura-ai-engine', 'uncataloged-provider'])
   })
 
   it('answers no catalog provider or models for the provider it drops', () => {

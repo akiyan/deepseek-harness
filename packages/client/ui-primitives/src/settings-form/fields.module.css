@@ -151,3 +151,8 @@
   line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* API tokens stay masked without a login-password input. */
+.maskedSecret {
+  -webkit-text-security: disc;
+}

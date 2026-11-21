@@ -39,6 +39,7 @@ import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
 import { isImageMediaType } from '../service.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { observeControlRow } from './control-row-layout.ts'
+import { usePromptSuggestion } from './use-prompt-suggestion.ts'
 import css from './InputBar.module.css'
 
 export type InputBarProps = ComposerBarProps
@@ -48,8 +49,9 @@ export const InputBar = memo(function InputBar({
   retryFileUpload, registerFileIntake,
   toggleCommandMenu, stop, retry, t,
   renderSlot, useBusyEnter, useFileUploads, useNotices, useLexicon, useMenuLauncher, useStopShortcut,
+  requestPromptSuggestion, usePromptSuggestionsEnabled, useTriggerMenu, isPromptTriggerMenuOpen,
   useAccess,
-  useProjection, sessionId, variant, occurrence, disabled: inert = false, blocked,
+  useProjection, sessionId, variant, occurrence, disabled: inert = false, blocked, pendingInteraction = false,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory,
 }: InputBarProps) {
@@ -61,11 +63,14 @@ export const InputBar = memo(function InputBar({
   // no Send, no Stop, or no file intake rather than a disabled control. `useAccess` is undefined only
   // without a Session, where the bar is an inert placeholder with no keyboard, stop, or file intake.
   const promptDenied = useAccess('session/prompt') === false
+  const suggestionDenied = useAccess('session/suggestPrompt') === false
   const cancelDenied = useAccess('session/cancel') === false
   const uploadDenied = useAccess('fileUploads/upload') === false
   const stopAction = cancelDenied ? undefined : stop
   void useLexicon // hook seat stays bound by the inject compartment; text-ref decoration rides the shell's editor transforms
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
+  const triggerMenuOpen = useTriggerMenu(menu => menu.open)
+  const promptSuggestionsEnabled = usePromptSuggestionsEnabled(enabled => enabled)
   const [activity, setActivity] = useState(false)
   useEffect(() => { setActivity(false) }, [sessionId])
   const promptError = useSession(s => s.promptError) ?? null
@@ -77,7 +82,9 @@ export const InputBar = memo(function InputBar({
       && typeof message.source === 'object' && message.source !== null && 'kind' in message.source
       && message.source.kind === 'user') ?? false)
   const historyOpen = useSession(s => s.openState === 'open') ?? false
+  const completedSuggestionTurn = useProjection('promptSuggestionTurn')
   const submissionPending = useSession(s => s.pendingSubmissions.length > 0) ?? false
+  const blank = useSession(s => s.blank) ?? true
   const subagent = useSession(s => s.subagent) ?? null
   const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the composer placeholder (the projection is the folded
@@ -172,6 +179,17 @@ export const InputBar = memo(function InputBar({
   const steeringAvailable = subagent === null || subagent.address.mode === 'continuable'
   const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && steeringAvailable
     && input.queue.length > 0
+
+  const suggestionSeat = promptSuggestionsEnabled && requestPromptSuggestion !== undefined
+    && sessionId !== undefined && occurrence === 'main' && variant === 'composer' && !blank && subagent === null
+    && editable && !promptDenied && !suggestionDenied && !pendingHumanInput && !submissionPending
+    && !pendingInteraction && input.phase === 'plain' && input.attachmentIds.length === 0 && input.queue.length === 0
+    ? {
+      keyboard, actions: inputActions, request: requestPromptSuggestion,
+      draftRev: input.draftRev, ready: draft === '' && !triggerMenuOpen, isTriggerMenuOpen: isPromptTriggerMenuOpen,
+    }
+    : null
+  const suggestion = usePromptSuggestion(sessionId, historyOpen ? completedSuggestionTurn : undefined, suggestionSeat, running)
 
   useEffect(() => {
     if (input === undefined || inputActions === undefined) return
@@ -289,10 +307,12 @@ export const InputBar = memo(function InputBar({
   const gate = useRef({
     locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
     intakeFiles, uploadsPending, uploadsHeldText, showToast, canAcceptDrop,
+    acceptPromptSuggestion: suggestion.accept, discardPromptSuggestion: suggestion.discard,
   })
   gate.current = {
     locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
     intakeFiles, uploadsPending, uploadsHeldText, showToast, canAcceptDrop,
+    acceptPromptSuggestion: suggestion.accept, discardPromptSuggestion: suggestion.discard,
   }
 
   useEffect(() => {
@@ -500,6 +520,21 @@ export const InputBar = memo(function InputBar({
           onWorkspaceKeyDown={onWorkspaceKeyDown}
           hint={hint}
           showPlaceholder={draft === '' && attachments.length === 0 && !claimActive}
+          suggestion={suggestion.text === null ? null : {
+            text: suggestion.text,
+            label: t('suggestion.insert'),
+            tab: t('suggestion.tab'),
+            tap: t('suggestion.tap'),
+            announce: t('suggestion.announce'),
+            onAccept: () => {
+              if (suggestion.accept() && editor !== null) focusDraftEditor(editor, revealSelection)
+            },
+            onDismiss: () => {
+              if (!suggestion.discard()) return false
+              if (editor !== null) focusDraftEditor(editor, revealSelection)
+              return true
+            },
+          }}
         />
         <div ref={rowRef} className={css.row}>
           <div className={css.tools} hidden={activity}>

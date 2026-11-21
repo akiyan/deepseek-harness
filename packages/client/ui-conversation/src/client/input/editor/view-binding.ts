@@ -40,6 +40,8 @@ interface DraftViewGate {
   uploadsHeldText: string
   showToast: (text: string) => void
   canAcceptDrop: boolean
+  acceptPromptSuggestion: () => boolean
+  discardPromptSuggestion: () => boolean
 }
 
 /**
@@ -131,6 +133,15 @@ export function installDraftKeymap(
 ): () => void {
   return registerComposerKeymap(editor, {
     arbitrate: (key, composing) => keyboard.arbitrate(key, composing),
+    isRecallingPrompt: () => keyboard.isRecallingPrompt(),
+    recallPrompt: (direction) => {
+      const g = gate.current
+      if (g.locked || g.machineBusy || !keyboard.recallPrompt(direction)) return false
+      g.discardPromptSuggestion()
+      return true
+    },
+    acceptPromptSuggestion: () => gate.current.acceptPromptSuggestion(),
+    discardPromptSuggestion: () => gate.current.discardPromptSuggestion(),
     space: () => {
       if (gate.current.machineBusy || gate.current.locked) return false
       return keyboard.space()

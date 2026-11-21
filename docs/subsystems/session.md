@@ -840,6 +840,19 @@ The backends that consume this contract are on [persistence.md](persistence.md).
 
 The optional `application` selects a registered file handler without changing the system default; `workspacePathApplications({ path })` returns current handlers, names, icons, and default selection after Host path verification.
 
+## Next-message suggestion request
+
+`session/suggestPrompt` addresses one completed turn of a live Session. It neither activates an Agent nor admits input. Its reply is a candidate string or null, not a Session event. The [Session Controller documentation](../../packages/api/session-controller/README.md#automatic-next-message-suggestions) owns its eligibility, inputs, and auxiliary audit behavior.
+
+```ts type-equiv
+/** Request a suggestion for a newly observed completed turn in a live Session. */
+interface SessionSuggestPromptRequest {
+  readonly sessionId: SessionId
+  /** Exact `turn/end` sequence just observed by the caller. */
+  readonly turnEndSeq: SessionSeq
+}
+```
+
 ## Session-log upload exclusions
 
 `ctx.sessionLogDeepSeek.registerExclusion()` registers a caller-owned predicate over `SessionLogUploadRequest`. Any match omits the log contribution and its acceptance callback before reading Session events. No match preserves normal upload eligibility. The [package README](../../packages/session/session-log-deepseek/README.md#upload-exclusions) defines failure and disposal behavior.
@@ -982,6 +995,14 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  * @returns acknowledgement that the Agent accepted the prompt.
  */
 @Remote('prompt') async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
+
+/**
+ * Request an optional editable draft for one freshly observed live turn. Only the owner may start generation.
+ * @param request - Session identity and exact eligible `turn/end` sequence.
+ * @param signal - cancellation of this caller, independent of other waiters.
+ * @returns one bounded suggestion, or null if the turn is stale, generation is disabled, or the result is unusable.
+ */
+@Remote('suggestPrompt') async suggestPrompt(request: SessionSuggestPromptRequest, signal: AbortSignal): Promise<string | null>
 
 /**
  * Read one image from the attachment store after gateway authorization.

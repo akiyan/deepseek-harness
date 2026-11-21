@@ -6,13 +6,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { resolveProfiles } from '../src/config.ts'
 import { BUNDLED_PROVIDERS, bundledModel, bundledProvider } from '../src/bundled-catalog.ts'
 import { assemble } from './assemble.ts'
 import { memoryAuth } from './auth-double.ts'
-import { closeMockServers, mockServer } from './mock-server.ts'
+import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const KEY_ENV = 'PI_TEST_KEY'
 
@@ -106,9 +106,10 @@ describe('bundled catalog', () => {
     const bundle = bundledProvider('ollama-cloud')!
     const descriptor = bundledModel('ollama-cloud', bundle, {
       id: 'plain-completion', name: 'Plain Completion', contextWindow: 8_192, maxTokens: 1_024,
-      input: ['text'] as const, reasoning: false, supportsOff: false,
+      input: ['text'] as const,
     })
 
+    expect(descriptor.reasoning).toBe(false)
     expect(descriptor.thinkingLevelMap).toBeUndefined()
   })
 
@@ -257,5 +258,99 @@ describe('bundled catalog', () => {
     // is what it reached.
     expect(result.finish.kind).toBe('error')
     expect(server.paths).toEqual(['/v1/responses'])
+  })
+})
+
+describe('bundled Sakura AI Engine route', () => {
+  const SAKURA = 'sakura-ai-engine'
+
+  /** Send one user turn to a mock Chat Completions endpoint and return the request body. */
+  async function sentBody(model: string, reasoningEffort?: string): Promise<Record<string, unknown>> {
+    const server = await mockServer([{ events: textEvents }])
+    const adapter = new LlmPiAi.PiAiAdapter({
+      profiles: () => resolveProfiles({ [SAKURA]: { apiKeyEnv: KEY_ENV, baseURL: `${server.url}/v1` } }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      auth: memoryAuth(),
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter([SAKURA], adapter)
+    const result = await assemble(ctx, {
+      provider: SAKURA,
+      model,
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'model', provider: SAKURA, model },
+      })],
+      ...reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
+      maxTokens: 1024,
+    })
+    expect(result.finish.kind).toBe('stop')
+    expect(server.paths).toEqual(['/v1/chat/completions'])
+    return server.requests[0] as Record<string, unknown>
+  }
+
+  it('resolves a profile that names only a credential to the service endpoint', async () => {
+    const resolved = resolveProfiles({ [SAKURA]: { apiKeyEnv: KEY_ENV } }).get(SAKURA)!
+
+    expect(resolved.catalogError).toBeUndefined()
+    expect(resolved.modelErrors.size).toBe(0)
+    expect(resolved.api).toBe('openai-completions')
+    expect(resolved.baseURL).toBe('https://api.ai.sakura.ad.jp/v1')
+    const ctx = await harness({ providers: { [SAKURA]: { apiKeyEnv: KEY_ENV } } })
+    expect(ctx.llm.listProviders()).toContainEqual({ id: SAKURA, name: 'Sakura AI Engine' })
+  })
+
+  it('lists only the models that accept tools, with their published capacities', async () => {
+    const ctx = await harness({ providers: { [SAKURA]: { apiKeyEnv: KEY_ENV } } })
+    const listed = (await ctx.llm.listModels(SAKURA)).map(model => model.id)
+
+    expect(listed).toEqual(expect.arrayContaining([
+      'gpt-oss-120b',
+      'preview/DeepSeek-V4.1-Flash-1017',
+      'preview/GLM-5.3-Flash',
+      'preview/Kimi-K2.7-Code',
+      'preview/Qwen3.6-35B-A3B',
+      'preview/gemma-4-31B-it',
+    ]))
+    // The endpoint rejects `tools` on these, and every agent request carries them.
+    for (const toolless of ['llm-jp-3.1-8x13b-instruct4', 'preview/Qwen3-VL-30B-A3B-Instruct', 'preview/Qwen3-0.6B-cpu']) {
+      expect(listed).not.toContain(toolless)
+    }
+    const deepseek = await ctx.llm.resolveModelInfo(SAKURA, 'preview/DeepSeek-V4.1-Flash-1017')
+    expect(deepseek.context?.contextWindow).toBe(1_048_575)
+    expect(deepseek.inputModalities).toEqual(['text', 'image'])
+    const gptOss = await ctx.llm.resolveModelInfo(SAKURA, 'gpt-oss-120b')
+    expect(gptOss.context?.contextWindow).toBe(131_072)
+    expect(gptOss.inputModalities).toEqual(['text'])
+    for (const model of bundledProvider(SAKURA)!.models) expect(model.maxTokens).toBe(32_000)
+  })
+
+  it('offers only the reasoning levels each model accepts', async () => {
+    const ctx = await harness({ providers: { [SAKURA]: { apiKeyEnv: KEY_ENV } } })
+    const efforts = async (model: string): Promise<string[] | undefined> =>
+      (await ctx.llm.resolveModelInfo(SAKURA, model)).reasoning?.efforts.map(effort => effort.id)
+
+    expect(await efforts('gpt-oss-120b')).toEqual(['low', 'medium', 'high'])
+    expect(await efforts('preview/DeepSeek-V4.1-Flash-1017')).toEqual(['off', 'low', 'high', 'xhigh', 'max'])
+    expect(await efforts('preview/Kimi-K2.7-Code')).toEqual(['low', 'medium', 'high'])
+    expect(await efforts('preview/GLM-5.3-Flash')).toEqual(['low', 'medium', 'high'])
+    expect(await efforts('preview/Qwen3.6-35B-A3B')).toEqual(['off', 'low', 'medium', 'high'])
+    expect(await efforts('preview/gemma-4-31B-it')).toEqual(['off', 'low', 'medium', 'high'])
+  })
+
+  it('sends max_tokens and the selected reasoning_effort over Chat Completions', async () => {
+    const body = await sentBody('preview/DeepSeek-V4.1-Flash-1017', 'xhigh')
+
+    expect(body['model']).toBe('preview/DeepSeek-V4.1-Flash-1017')
+    expect(body['max_tokens']).toBe(1024)
+    expect(body).not.toHaveProperty('max_completion_tokens')
+    expect(body['reasoning_effort']).toBe('xhigh')
+  })
+
+  it('sends none for off and nothing for a model that cannot stop reasoning', async () => {
+    expect((await sentBody('preview/gemma-4-31B-it', 'off'))['reasoning_effort']).toBe('none')
+    // gpt-oss rejects `none` with HTTP 400, so an unselected level sends no parameter.
+    expect(await sentBody('gpt-oss-120b')).not.toHaveProperty('reasoning_effort')
   })
 })

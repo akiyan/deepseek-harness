@@ -536,10 +536,17 @@ function snapshotAppend(
   return { type, data: dataSnapshot, surface }
 }
 
+// Supplemental audit records reproduce an auxiliary call, but are not needed
+// to reconstruct the conversation. Older readers retain them without applying them.
+const IGNORABLE_LOG_RECORDS: ReadonlySet<string> = new Set(['session/prompt-suggestion-request'])
+
 /** Construct and validate one live event from detached inputs. */
 function createAppendEvent(snapshot: ReturnType<typeof snapshotAppend>, seq: SessionSeq): SessionEvent {
   const { type, data, surface } = snapshot
-  const event = deepFreeze({ type, seq, time: Date.now(), data, ...surface } as SessionEvent)
+  const event = deepFreeze({
+    type, seq, time: Date.now(), data, ...surface,
+    ...(IGNORABLE_LOG_RECORDS.has(type) ? { ignorable: true } : {}),
+  } as SessionEvent)
   validateSessionEventData(event, `session event "${type}" at seq ${seq}`)
   return event
 }

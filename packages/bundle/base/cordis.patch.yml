@@ -516,6 +516,9 @@
     - id: web-ollama-api
       name: '@deepseek-ai/dsh-web-ollama-api'
 
+    - id: web-search-exa
+      name: '@deepseek-ai/dsh-web-search-exa'
+
     - id: web-deepseek-api
       name: '@deepseek-ai/dsh-web-deepseek-api'
 

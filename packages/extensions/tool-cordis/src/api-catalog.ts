@@ -2522,10 +2522,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a detached config only when a default must be materialized.',
       },
       {
-        signature: 'async prepareCall( config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall, ): Promise<PreparedLlmCall>',
+        signature: 'async prepareCall( config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall, options?: LlmPrepareCallOptions, ): Promise<PreparedLlmCall>',
         description: 'Resolve one call under its current adapter registration. The returned one-shot handle keeps that registration across header logging and dispatch, so HMR cannot combine one adapter\'s capability result with another adapter. An optional synchronous callback selects concrete controls using captured model metadata. Defaults and validation apply to its result. Callback failures and cancellation reject preparation before dispatch.',
-        parameters: [{ name: 'config', description: 'provider/model route and optional concrete request controls.' }, { name: 'signal', description: 'optional cancellation for adapter-owned capability lookup.' }, { name: 'configure', description: 'pure control selection, called once before defaults and validation.' }],
+        parameters: [{ name: 'config', description: 'provider/model route and optional concrete request controls.' }, { name: 'signal', description: 'optional cancellation for adapter-owned capability lookup.' }, { name: 'configure', description: 'pure control selection, called once before defaults and validation.' }, { name: 'options', description: 'omit to allow the adapter\'s configured routing; `exactRoute` refuses substitutions.' }],
         returns: 'a prepared config and its registration-bound stream entry point.',
+        throws: ['{LlmError} `INVALID_PREPARED_CALL` if an exact route is required but the model can be redirected.'],
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
@@ -2697,6 +2698,51 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Delete one item after checking its version; absence succeeds without an event.',
         parameters: [{ name: 'request', description: 'Session, message, and observed item version.' }],
         returns: 'the stable absent postcondition or an explicit failure.',
+      },
+    ],
+  },
+  {
+    key: 'modelSignIn',
+    summary: 'Host owner of the Models page\'s provider sign-in Remote.',
+    description: 'Host owner of the Models page\'s provider sign-in Remote.\n\nOne attempt per provider is enough for one surface: the authorization seam already refuses a second attempt for the same credential record, so a second browser tab hears that refusal instead of racing this one.',
+    methods: [
+      {
+        signature: '@Remote async list(): Promise<SignInFlowView[]>',
+        description: 'List every provider sign-in this composition offers.',
+        parameters: [],
+        returns: 'one entry per registered flow, with its methods and whether a credential is stored.',
+      },
+      {
+        signature: '@Remote begin(key: string, method: string): SignInAttemptView',
+        description: 'Start one attempt and return its first view.',
+        parameters: [{ name: 'key', description: 'credential record the flow writes, as `<scope>/<id>`.' }, { name: 'method', description: 'one method id the flow declared.' }],
+        returns: 'the attempt\'s view; poll {@link poll} for later phases.',
+        throws: ['when the key is malformed, no flow claims it, or one is already running.'],
+      },
+      {
+        signature: '@Remote poll(id: string): SignInAttemptView | undefined',
+        description: 'Read one attempt\'s current view.',
+        parameters: [{ name: 'id', description: 'attempt identity returned by {@link begin}.' }],
+        returns: 'the view, or undefined once this Host forgot the attempt.',
+      },
+      {
+        signature: '@Remote answer(id: string, promptId: number, value: string): SignInAttemptView',
+        description: 'Answer the question the attempt is waiting on.',
+        parameters: [{ name: 'id', description: 'attempt identity.' }, { name: 'promptId', description: 'the question\'s id, so a superseded question cannot be answered.' }, { name: 'value', description: 'what the human typed or chose.' }],
+        returns: 'the attempt\'s view after the answer is delivered.',
+        throws: ['when the attempt is unknown or the question is no longer pending.'],
+      },
+      {
+        signature: '@Remote cancel(id: string): SignInAttemptView',
+        description: 'Withdraw one attempt.',
+        parameters: [{ name: 'id', description: 'attempt identity.' }],
+        returns: 'the attempt\'s view, already marked cancelled.',
+      },
+      {
+        signature: '@Remote async signOut(key: string): Promise<void>',
+        description: 'Forget one provider\'s stored credential record.',
+        parameters: [{ name: 'key', description: 'credential record the flow writes, as `<scope>/<id>`.' }],
+        throws: ['when an attempt for that record is running.'],
       },
     ],
   },
@@ -3394,6 +3440,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Admit one prompt after explicitly resuming its Session.',
         parameters: [{ name: 'request', description: 'Session identity, prompt content, source metadata, and delivery mode.' }, { name: 'signal', description: 'caller cancellation before prompt admission begins.' }],
         returns: 'acknowledgement that the Agent accepted the prompt.',
+      },
+      {
+        signature: '@Remote(\'suggestPrompt\') async suggestPrompt(request: SessionSuggestPromptRequest, signal: AbortSignal): Promise<string | null>',
+        description: 'Request an optional editable draft for one freshly observed live turn. Only the owner may start generation.',
+        parameters: [{ name: 'request', description: 'Session identity and exact eligible `turn/end` sequence.' }, { name: 'signal', description: 'cancellation of this caller, independent of other waiters.' }],
+        returns: 'one bounded suggestion, or null if the turn is stale, generation is disabled, or the result is unusable.',
       },
       {
         signature: '@Remote(\'attachment\') attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue>',
@@ -8304,6 +8356,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmNativeAuth {\n    env: readonly string[];\n    oauth: boolean;\n}',
   },
   {
+    name: 'LlmPrepareCallOptions',
+    declaration: 'export interface LlmPrepareCallOptions {\n    readonly exactRoute?: boolean;\n}',
+  },
+  {
     name: 'LlmProviderInfo',
     declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n}',
   },
@@ -10236,6 +10292,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionStorageMetadata {\n    readonly meta: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n}',
   },
   {
+    name: 'SessionSuggestPromptRequest',
+    declaration: 'export interface SessionSuggestPromptRequest {\n    readonly sessionId: SessionId;\n    readonly turnEndSeq: SessionSeq;\n}',
+  },
+  {
     name: 'SessionSummary',
     declaration: 'export interface SessionSummary {\n    readonly agentAvailable: boolean;\n    readonly formatStatus?: \'current\' | \'migration-required\';\n    readonly sessionId: SessionId;\n    readonly updatedAt: number;\n    readonly running: boolean;\n    readonly blank: boolean;\n    readonly parentSessionId?: SessionId;\n    readonly origin?: \'subagent\';\n    readonly cwd?: string;\n    readonly projections?: SessionProjectionHints;\n}',
   },
@@ -10460,12 +10520,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SignInAttemptId = Branded<\'SignInAttemptId\'>;',
   },
   {
-    name: 'SignInAttemptView',
-    declaration: 'export interface SignInAttemptView {\n    readonly id: SignInAttemptId;\n    readonly phase: \'initializing\' | \'waiting-browser\' | \'exchanging\' | \'committing\' | \'succeeded\' | \'cancelled\' | \'expired\' | \'failed\';\n    readonly authorizeUrl?: string;\n    readonly expiresAt?: number;\n    readonly errorCode?: SignInErrorCode;\n}',
+    name: 'SignInFlowView',
+    declaration: 'export interface SignInFlowView {\n    readonly key: string;\n    readonly provider: string;\n    readonly label: string;\n    readonly methods: readonly SignInMethodView[];\n    readonly signedIn: boolean;\n    readonly credential: \'none\' | \'api-key\' | \'grant\';\n}',
   },
   {
-    name: 'SignInErrorCode',
-    declaration: 'export type SignInErrorCode = \'no-response\' | \'network\' | \'protocol\' | \'expired\' | \'storage\';',
+    name: 'SignInMethodView',
+    declaration: 'export interface SignInMethodView {\n    readonly id: string;\n    readonly label: string;\n}',
   },
   {
     name: 'SkillCandidate',

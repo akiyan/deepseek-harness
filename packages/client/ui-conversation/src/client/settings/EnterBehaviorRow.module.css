@@ -32,11 +32,16 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.desc {
+.desc,
+.suggestionDesc {
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.suggestionDesc {
+  color: var(--dsw-alias-label-secondary);
 }
 
 .selector {

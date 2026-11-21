@@ -104,6 +104,8 @@ root 作用域的 `conversation.session.header.views.actions` list 有注册项�
 
 草稿中的普通文字及文件、目录、Session 引用胶囊在切换 Session 和刷新后保留。公开输入方法接受文本及结构化文件引用。`SessionInput.addReferences` 在保留选区之后插入引用，形成一个撤销步骤且不替换选中文字。`SessionInput.canInsertReferences()` 读取当前的前置条件，不通知变化：输入模型释放后、提交期间、Session 已移除或为不可继续的子智能体、存在输入框阻塞时为 false，`addReferences` 执行时会再次检查。引文（quote）插入共用其中的 Session 和阻塞条件。内部恢复和工作区携带保留结构化引用。输入模型在首次对外读取前导入保存内容；React 只挂载同一编辑器并绑定现有 Conversation store 写入回调。原存储 key 兼容旧字符串，新写入保存不含运行时节点 ID 的语义快照。等待 skill 目录不会阻塞编辑：斜杠名称保持普通文字，直到匹配的目录项到达。目录到达只重匹配当前文字，不改变胶囊、选区或 Undo 历史。浏览器持有的附件 File 对象不由这一机制持久化；草稿有附件期间，输入 hub 以不保留事件连接的 `draft` 引用持有其 Session，因此所有视图都释放该 Session 后，同一个输入框仍保留这些附件。[草稿初始化决策](../../../.agents/notes/implemented/architecture/2026-09-30-structured-draft-initialization.zh.md)规定所有权与恢复流程。
 
+输入框聚焦时，在首个可视行按普通上箭头可调出同一 Session 中更早的人工提示词；在末个可视行按下箭头移向较新的提示词，越过最新项后恢复工作草稿。浏览历史时，上下箭头在任意光标位置切换提示词，只有一条历史时也可返回原草稿；普通多行草稿保持原生上下光标移动。选区、输入法、组合方向键和补全菜单保持原有行为。较早的 Session 页面按需加载，不覆盖加载期间的新编辑。历史调出仅替换文字；当前附件保持可见并沿用正常提交行为。浏览期间（包括编辑调出的文字时），持久化始终保存完整语义工作草稿；刷新恢复该草稿，成功重发后也在编辑器中恢复。显式的程序化草稿替换会结束浏览。
+
 已认领的命令是草稿开头的一个原子 chip，认领与该 chip 同生共灭。删除参数和分隔空格不影响认领。光标到达 chip 边缘时，第一次 Backspace 或 Delete 选中整个 chip，再按一次才删除它并释放认领，参数保留为普通文字；按其他键、点击或移动光标会取消选中。在 chip 前插入文字或换行会把它还原为字面 token 并释放认领，撤销会连同认领一起恢复被删除的 chip。持久化的草稿记录 chip 的 token，刷新后命令目录解析出认领即重建 chip；在此之前先编辑了草稿则保留字面 token，Enter 仍会把它作为命令提交。所有命令和语言使用相同规则，包括 `/goal`、`/目标`、`/plan` 和 `/计划`。输入法组合输入期间，命令提示和普通占位文字持续隐藏，直到编辑器提交最终文字且对应输入为空时才重新显示。
 
 工作区选择使用 `uiWorkspace.openWorkspace` 准备目标并提交导航。草稿内容（包括结构化引用）和附件仅在该请求仍为当前请求、且没有在途提交时，通过它的同步准备回调搬移；后续导航、所有者释放或在途提交都会把原草稿留在它的 Session 中。
@@ -125,6 +127,8 @@ Session 首次绑定或缓存的 Session 成为 current 时，shell 会在渲染
 宽度拖拽条的指示线只在已捕获指针的拖拽期间跟随指针，普通悬停不改变其位置。
 
 常驻 composer 在无 Session 与有 Session 之间保持挂载。输入空白字符会隐藏占位提示；没有附件的纯空白草稿无法发送。无 Session 时，同一个编辑器表面保持 inert，Workspace picker 连接 blank Session。该表面是 shell 所有的 Lexical 编辑器：引用 chip 是携带 owner 序列化身份的原子 decorator 节点（提交时经 owner codec 展开），已认领的 slash command 是携带认领的行首原子 chip，文件夹文本引用以图标前缀携带文件夹图形，草稿文字和引用语义字段由逐 Session Conversation store 持久化。QueueDock 从 Session 的 `inbox` 投影读取 `next-turn`，包含从冷状态恢复的消息，仅排除仍由本地 transcript 提交承接的 requestId。其他排队行保留正常展示和操作。Queue 操作通过 scoped `ctx.conversation` service 寻址准确的 queue occurrence；queue 预览使用 [UserText Factory](#sent-user-text)（wire 会话形式折叠为其标签），并按原始附件顺序展示本地或持久化的图片和文件。图片使用缩略图，文件使用紧凑的名称与大小卡片。编辑态在 ui-primitives 的 `InlineEditor` 中展示字面发送文本，因此重新编辑不会丢失换行。持久化缩略图通过会话图片 URL 缓存解析。繁忙时 Enter 行为保存在 Host-backed `ui-conversation` settings namespace。 composer 键盘映射经斜杠流水线裁决触发菜单的按键——Tab 确认高亮补全项（可下钻项则下钻），Escape 与 Shift+Tab 离开菜单且不选定——其余按键交给编辑器自身。 在 Apple 平台上，Home 与 End 把光标移到当前视觉行的行首或行末，而不是滚动对话，按住 Shift 时扩展选区；光标紧贴在 quote 左侧时，End 与 Cmd+Right 走同一路径移到该行末尾。 接管键盘的浮层通过 `SessionInput.focus()` 把键盘还回来，该路径走 Lexical 自己的 focus，因此光标回到草稿原来的位置而不是开头。
+
+符合条件的回复结束后，空白的主输入框可以显示一条下一步消息建议。按 Tab 或点击插入按钮只会把建议转成可编辑草稿，不会发送。撤销插入或清空草稿后，会再次显示同一条建议，不重新调用模型。采纳前开始输入会取消初次建议；按 Escape 会取消该轮次中显示的建议。提交消息、添加附件、切换会话或刷新页面都会清除建议。补全菜单和输入法保留原有按键行为；没有菜单或建议处理 Tab 时，Tab 正常移动焦点。**插件 → akiyan 内置插件设置 → 建议下一条消息** 中的开关默认开启，并说明此功能会发出额外的模型请求；输入与日志规则见 [Session Controller](../../api/session-controller/README.zh.md#automatic-next-message-suggestions)。
 
 窄屏浏览器设置中，繁忙时 Enter 偏好的标签与控件间距缩小；Windows 和 macOS 桌面窗口保留标准间距。
 

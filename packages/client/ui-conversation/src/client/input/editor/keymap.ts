@@ -1,7 +1,6 @@
 /**
- * Composer keymap over the Lexical command layer: menu arbitration
- * (arrows/escape/enter), space adjudication, the Enter submit gesture, and
- * paste routing. Registered at CRITICAL priority so it decides before
+ * Composer keymap over the Lexical command layer: menu arbitration,
+ * suggestion insertion/dismissal, space adjudication, Enter, and paste routing. Registered at CRITICAL priority so it decides before
  * @lexical/plain-text's own Enter/paste defaults; a handler returning false
  * falls through to those defaults (Shift+Enter's line break, ordinary
  * spaces, text paste the bar routes itself).
@@ -24,12 +23,21 @@ import {
 import { mergeRegister } from '@lexical/utils'
 import type { ArbitrateKey, ArbitrateOutcome } from '../../contract/draft-editor.ts'
 import { clipboardFiles } from '../file-intake.ts'
+import { $composerLayout, $detectOffsetOfPoint } from './projection.ts'
 import { $isQuoteNode } from './QuoteNode.tsx'
 
 /** The bar-supplied behavior behind each intercepted gesture. */
 export interface ComposerKeymapHandlers {
   /** Keyboard arbitration while the menu is open ('pass' when no pipeline). */
   arbitrate(key: ArbitrateKey, composing: boolean): ArbitrateOutcome
+  /** Whether arrows continue browsing instead of moving within the recalled prompt. */
+  isRecallingPrompt?(): boolean
+  /** History navigation after menu arbitration and native vertical caret movement. */
+  recallPrompt?(direction: 'up' | 'down'): boolean
+  /** @returns whether plain Tab inserted the preview into the draft. */
+  acceptPromptSuggestion?(): boolean
+  /** Discard a pending or visible preview. @returns whether a preview was visible. */
+  discardPromptSuggestion?(): boolean
   /** Space adjudication; true = a claim was applied — the keystroke is consumed. */
   space(): boolean
   /** Dismiss the popupSelect shell (Escape layering: an open overlay closes first). */
@@ -53,6 +61,11 @@ function isComposingEvent(event: KeyboardEvent, recentlyComposing: () => boolean
   // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
   // oxlint-disable-next-line typescript/no-deprecated
   return event.isComposing || event.keyCode === 229 || recentlyComposing()
+}
+
+function isPlainKeydown(event: KeyboardEvent): boolean {
+  return !event.defaultPrevented && !event.repeat && !event.shiftKey && !event.ctrlKey
+    && !event.metaKey && !event.altKey && !event.getModifierState('AltGraph')
 }
 
 function isApplePlatform(): boolean {
@@ -165,6 +178,27 @@ function movePastQuote(editor: LexicalEditor, event: KeyboardEvent): boolean {
   return true
 }
 
+/** Whether a focused, collapsed caret can start or continue prompt browsing. */
+function atHistoryBoundary(editor: LexicalEditor, direction: 'up' | 'down', recalling: boolean): boolean {
+  const selection = $getSelection()
+  const root = editor.getRootElement()
+  if (!$isRangeSelection(selection) || !selection.isCollapsed() || root === null || root.ownerDocument.activeElement !== root) return false
+  if (recalling) return true
+  const layout = $composerLayout()
+  const offset = $detectOffsetOfPoint(layout, selection.focus)
+  if (offset === null) return false
+  if (direction === 'up' ? layout.detectText.slice(0, offset).includes('\n') : layout.detectText.slice(offset).includes('\n')) return false
+  if (layout.detectText === '') return true
+  const dom = root.ownerDocument.defaultView?.getSelection()
+  if (dom === null || dom === undefined || dom.rangeCount === 0 || !dom.isCollapsed) return false
+  const caret = dom.getRangeAt(0).getBoundingClientRect()
+  if (caret.height === 0) return direction === 'up' ? offset === 0 : offset === layout.detectLength
+  const contents = root.ownerDocument.createRange()
+  contents.selectNodeContents(root)
+  return ![...contents.getClientRects()].some(rect => rect.height > 0
+    && (direction === 'up' ? rect.bottom <= caret.top : rect.top >= caret.bottom))
+}
+
 /**
  * Move the caret to the start or end of its visual line for Home or End, with
  * Shift extending the selection. Apple key bindings map Home and End to
@@ -210,6 +244,8 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
   const onCompositionStart = (): void => {
     composing = true
     syncComposition()
+    // Native composition is a draft edit intent even before characters commit.
+    handlers.discardPromptSuggestion?.()
   }
   const onCompositionEnd = (): void => {
     composing = false
@@ -224,6 +260,12 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
     const inComposition = event !== null && isComposingEvent(event, recentlyComposing)
     if (handlers.arbitrate(key, inComposition) !== 'pass') {
       event?.preventDefault()
+      return true
+    }
+    if ((key === 'up' || key === 'down') && handlers.recallPrompt !== undefined && event !== null
+      && !inComposition && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+      && atHistoryBoundary(editor, key, handlers.isRecallingPrompt?.() === true) && handlers.recallPrompt(key)) {
+      event.preventDefault()
       return true
     }
     return false
@@ -256,20 +298,23 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
     editor.registerUpdateListener(syncComposition),
     editor.registerCommand(KEY_ARROW_UP_COMMAND, arrow('up'), COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(KEY_ARROW_DOWN_COMMAND, arrow('down'), COMMAND_PRIORITY_CRITICAL),
-    // Tab settles the highlighted completion and passes without one, keeping
-    // native focus traversal; Shift+Tab leaves the menu like Escape whenever it
-    // is open, highlight or not, so the two Tab gestures never disagree about
-    // consuming the draft.
-    editor.registerCommand(
-      KEY_TAB_COMMAND,
-      event => arrow(event.shiftKey ? 'tabBack' : 'tab')(event),
-      COMMAND_PRIORITY_CRITICAL,
-    ),
+    editor.registerCommand(KEY_TAB_COMMAND, (event) => {
+      const inComposition = isComposingEvent(event, recentlyComposing)
+      // Completion menus take precedence, including the existing Shift+Tab exit.
+      if (handlers.arbitrate(event.shiftKey ? 'tabBack' : 'tab', inComposition) !== 'pass'
+        || (!inComposition && isPlainKeydown(event) && handlers.acceptPromptSuggestion?.() === true)) {
+        event.preventDefault()
+        return true
+      }
+      return false
+    }, COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(KEY_ESCAPE_COMMAND, (event) => {
       // Escape layering: an open overlay closes; claimed without an overlay
       // does NOT release (deleting the command chip is the only exit gesture).
       handlers.dismissPopup()
-      if (handlers.arbitrate('escape', isComposingEvent(event, recentlyComposing)) === 'consumed') {
+      const inComposition = isComposingEvent(event, recentlyComposing)
+      if (handlers.arbitrate('escape', inComposition) === 'consumed'
+        || (!inComposition && isPlainKeydown(event) && handlers.discardPromptSuggestion?.() === true)) {
         event.preventDefault()
         return true
       }

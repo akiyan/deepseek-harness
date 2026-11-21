@@ -252,7 +252,8 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-session-controller`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `remoteAccess` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `typertGateway` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:83`](../packages/api/session-controller/src/index.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/api/session-controller/src/index.ts:87`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -261,6 +262,10 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /** Whether the Host may request a suggestion on the final reply's route. Defaults to true; the Loader supplies a live reference. */
+  readonly promptSuggestionsEnabled?: boolean | Volatile<boolean>
+  /** End-to-end suggestion deadline in milliseconds. Defaults to 3000. */
+  readonly promptSuggestionTimeoutMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
@@ -2227,8 +2232,12 @@ export interface Config {
    * Offer pi-ai's Sign in with ChatGPT for the `openai` route. The flow names
    * this installation to OpenAI and asks the user to authorize ChatGPT plan
    * usage, so it stays off unless a deployment chooses it; the `openai` route
-   * otherwise signs in with an API key. A paid or remotely hosted service
-   * needs OpenAI's sign-in-with-ChatGPT process before it offers this flow.
+   * otherwise signs in with an API key. Eligibility is OpenAI's: its help
+   * center names Go, Plus, Pro, and Business subscribers for plan usage, a
+   * Business workspace's controls decide what its seats may spend, and the
+   * plan's limits and OpenAI's Sign in with ChatGPT Terms apply to every
+   * request the flow authorizes. A paid or remotely hosted service needs
+   * OpenAI's sign-in-with-ChatGPT process before it offers this flow.
    */
   chatGptSignIn: boolean
 }
@@ -2449,9 +2458,9 @@ export interface PiAiCompatProfile {
    * entry or from pi-ai's own baseURL detection, neither of which resolution
    * can read, so kwargs set beside another format are sent nowhere.
    */
-  chatTemplateKwargs?: NonNullable<OpenAICompletionsCompat['chatTemplateKwargs']>
+  chatTemplateKwargs?: OpenAICompletionsCompat['chatTemplateKwargs']
   /** Arguments sent as `chat_template_args` under the `baseten` thinking format; `openai-completions`. */
-  chatTemplateArgs?: NonNullable<OpenAICompletionsCompat['chatTemplateArgs']>
+  chatTemplateArgs?: OpenAICompletionsCompat['chatTemplateArgs']
   /** Alias for `thinkingTokenBudgetField: "thinking_token_budget"`; an explicit field wins. `openai-completions`. */
   supportsThinkingTokenBudget?: boolean
   /** Request field carrying the reasoning budget from `thinkingBudgets`; omitted unless configured. `openai-completions`. */
@@ -5390,6 +5399,32 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-deepseek -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-web-search-exa -->
+<a id="deepseek-aidsh-web-search-exa"></a>
+
+## `@deepseek-ai/dsh-web-search-exa`
+
+- `inject`: `web`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/web/web-search-exa/src/index.ts:14`](../packages/web/web-search-exa/src/index.ts)
+
+```ts config-catalog
+/** Live Exa request settings; keys are stored separately in the credential store. */
+export interface Config {
+  /** Default result count when a request supplies no bound (1–100). */
+  maxResults: Volatile<number>
+  /** REST API base; authenticated requests append /search. */
+  baseURL: Volatile<string>
+  /** Anonymous Streamable HTTP MCP endpoint; enables the advanced tool when tools is omitted. */
+  mcpURL: Volatile<string>
+  /** Total network-operation deadline in milliseconds. */
+  timeoutMs: Volatile<number>
+  /** Maximum decoded response bytes before terminating an upstream stream. */
+  maxResponseBytes: Volatile<number>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-exa -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-webhook-github -->
 <a id="deepseek-aidsh-webhook-github"></a>
 
@@ -5550,6 +5585,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-settings-shell` | — | [`packages/client/ui-settings-shell/src/index.ts`](../packages/client/ui-settings-shell/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-subagent` | — | [`packages/client/ui-settings-subagent/src/index.ts`](../packages/client/ui-settings-subagent/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-web-search` | — | [`packages/client/ui-settings-web-search/src/index.ts`](../packages/client/ui-settings-web-search/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-settings-web-search-exa` | — | [`packages/client/ui-settings-web-search-exa/src/index.ts`](../packages/client/ui-settings-web-search-exa/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-web-search-ollama` | — | [`packages/client/ui-settings-web-search-ollama/src/index.ts`](../packages/client/ui-settings-web-search-ollama/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-shortcuts` | — | [`packages/client/ui-shortcuts/src/index.ts`](../packages/client/ui-shortcuts/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-sidebar` | — | [`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts) |

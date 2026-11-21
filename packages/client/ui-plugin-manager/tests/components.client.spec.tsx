@@ -100,7 +100,7 @@ function subjectOf(owner: unknown): PluginsSubject | undefined {
   return typeof owner === 'object' && owner !== null && 'subject' in owner ? (owner as PluginDetailProps).subject : undefined
 }
 
-const NO_CONFIG: ConfigLedger = { items: [], shiguredo: [], bundles: new Set(), rows: new Set(), sections: [] }
+const NO_CONFIG: ConfigLedger = { items: [], shiguredo: [], akiyan: [], bundles: new Set(), rows: new Set(), sections: [] }
 
 function renderTab(
   state: Partial<PluginManagerState> = {}, config: Partial<ConfigLedger> = {},
@@ -1450,6 +1450,28 @@ describe('PluginManagerPage', () => {
       expect(within(detail).getByRole('form', { name: 'guard form' })).toBeTruthy()
       fireEvent.click(within(detail).getByRole('button', { name: en.backToList }))
       expect(screen.getByRole('heading', { name: en.shiguredoTitle })).toBeTruthy()
+    })
+
+    it('lists akiyan built-in plugin settings in their own group after Experimental', () => {
+      renderTab(
+        { packages: [pkg()] },
+        { akiyan: [{ id: 'web-search-exa', label: 'Exa search settings' }] },
+        {
+          'plugins.akiyan:web-search-exa': view => (view === 'summary' ? 'Configure Exa search.' : <form aria-label="Exa form" />),
+        },
+      )
+      expect([...document.querySelectorAll('[data-plugin-group]')].map(group => group.getAttribute('data-plugin-group')))
+        .toEqual(['akiyan', 'bundles'])
+      const akiyan = document.querySelector('[data-plugin-group="akiyan"]') as HTMLElement
+      expect(within(akiyan).getByRole('heading', { name: en.akiyanTitle })).toBeTruthy()
+      expect(within(akiyan).getByText('Configure Exa search.')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: en.openDetail.replace('{name}', 'Exa search settings') }))
+      const detail = document.querySelector('[data-plugin-item-detail="web-search-exa"]') as HTMLElement
+      expect(within(detail).getByRole('heading', { level: 3 }).textContent).toBe('Exa search settings')
+      expect(within(detail).getByText('Configure Exa search.')).toBeTruthy()
+      expect(within(detail).getByRole('form', { name: 'Exa form' })).toBeTruthy()
+      fireEvent.click(within(detail).getByRole('button', { name: en.backToList }))
+      expect(screen.getByRole('heading', { name: en.akiyanTitle })).toBeTruthy()
     })
 
     it.each([

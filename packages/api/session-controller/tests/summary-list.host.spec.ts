@@ -2,7 +2,7 @@
  * Session-list summary payloads: a `session.list` row carries every registered
  * wire projection except the units that declare `summary: false`
  * (`turnOutline`, `sessionStats`, `todos`, `imageLimits`, `contextPressure`,
- * `contextBreakdown`), while an opened Session's
+ * `contextBreakdown`, `promptSuggestionTurn`), while an opened Session's
  * `session/follow` opening snapshot keeps serving them.
  */
 
@@ -25,7 +25,7 @@ import {
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { createSessionTestRemote } from './test-remote.ts'
 
-const SUMMARY_EXCLUDED_KEYS = ['turnOutline', 'sessionStats', 'todos', 'imageLimits', 'contextPressure', 'contextBreakdown'] as const
+const SUMMARY_EXCLUDED_KEYS = ['turnOutline', 'sessionStats', 'todos', 'imageLimits', 'contextPressure', 'contextBreakdown', 'promptSuggestionTurn'] as const
 
 const ownedContexts = new Set<Context>()
 afterEach(async () => {
@@ -143,6 +143,7 @@ describe('session.list summary payload', () => {
       expect(row?.projections?.values, `attempt ${String(attempt)}`).not.toHaveProperty('sessionStats')
       expect(row?.projections?.values, `attempt ${String(attempt)}`).not.toHaveProperty('todos')
       expect(row?.projections?.values, `attempt ${String(attempt)}`).not.toHaveProperty('imageLimits')
+      expect(row?.projections?.values, `attempt ${String(attempt)}`).not.toHaveProperty('promptSuggestionTurn')
     }
   })
 })

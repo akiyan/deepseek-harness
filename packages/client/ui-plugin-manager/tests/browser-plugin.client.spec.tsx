@@ -303,6 +303,7 @@ describe('ui-plugin-manager browser plugin', () => {
     // The page declares the slots a plugin's configuration arrives through, and binds their projection beside its state.
     expect(b.slots.spec('plugins.add.actions')).toMatchObject({ kind: 'list', scope: 'root' })
     expect(b.slots.spec('plugins.item')).toMatchObject({ kind: 'list', scope: 'root' })
+    expect(b.slots.spec('plugins.akiyan')).toMatchObject({ kind: 'list', scope: 'root' })
     expect(b.slots.spec('plugins.bundle.config')).toMatchObject({ kind: 'keyed', scope: 'root' })
     expect(b.slots.spec('plugins.row.config')).toMatchObject({ kind: 'keyed', scope: 'root' })
     for (const name of ['plugins.detail.actions', 'plugins.detail.badge', 'plugins.detail.section'] as const) {
@@ -325,7 +326,9 @@ describe('ui-plugin-manager browser plugin', () => {
     b.locale.setLocale('en')
     expect(face.resolveText(text)).toBe('Local tools')
     b.locale.setLocale('zh')
-    expect(face.hooks.configLedger.getSnapshot()).toEqual({ items: [], shiguredo: [], bundles: new Set(), rows: new Set(), sections: [] })
+    expect(face.hooks.configLedger.getSnapshot()).toEqual({
+      items: [], shiguredo: [], akiyan: [], bundles: new Set(), rows: new Set(), sections: [],
+    })
     // A Host change before the first render is not a reason to read.
     b.remote.emit('plugin-manager/changed', [{ reason: 'install' }])
     b.ctx.emit('connection/reset')

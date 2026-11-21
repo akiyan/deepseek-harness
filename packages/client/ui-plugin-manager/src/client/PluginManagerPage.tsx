@@ -45,13 +45,15 @@ import { ClientSyncNotice } from './ClientSyncNotice.tsx'
 import css from './PluginManagerPage.module.css'
 
 /** Resolve an opened item card to its ledger entry and the group slot that renders it. */
-function itemEntry(id: string, ledger: ConfigLedger): { item: OfficialItem; slot: 'plugins.item' | 'plugins.shiguredo' } | undefined {
+function itemEntry(id: string, ledger: ConfigLedger): { item: OfficialItem; slot: 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan' } | undefined {
   const official = ledger.items.find(item => item.id === id)
   if (official !== undefined) return { item: official, slot: 'plugins.item' }
   const shiguredo = ledger.shiguredo.find(item => item.id === id)
-  /* v8 ignore next -- an item view id comes from a card in one of the two ledgers */
-  if (shiguredo === undefined) return undefined
-  return { item: shiguredo, slot: 'plugins.shiguredo' }
+  if (shiguredo !== undefined) return { item: shiguredo, slot: 'plugins.shiguredo' }
+  const akiyan = ledger.akiyan.find(item => item.id === id)
+  /* v8 ignore next -- item ids originate from registered cards */
+  if (akiyan === undefined) return undefined
+  return { item: akiyan, slot: 'plugins.akiyan' }
 }
 
 /** Full component props assembled by the main slot renderer. */
@@ -59,7 +61,7 @@ export type PluginManagerPageProps =
   PropsRuntime<'main'>
   & PropsLocale<'pluginManager'>
   & PropsRenderSlots<
-    | 'plugins.item' | 'plugins.shiguredo' | 'plugins.bundle.config' | 'plugins.row.config'
+    | 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan' | 'plugins.bundle.config' | 'plugins.row.config'
     | 'plugins.bundle.activation' | 'plugins.add.actions' | 'plugins.tab'
     | 'plugins.detail.actions' | 'plugins.detail.badge' | 'plugins.detail.section'
   >
@@ -630,7 +632,7 @@ function PackageCard({ pkg, t, resolveText, busy, highlighted, newer, onOpen, on
  */
 function ItemCard({ item, slot, t, onOpen, renderSlot }: {
   readonly item: OfficialItem
-  readonly slot: 'plugins.item' | 'plugins.shiguredo'
+  readonly slot: 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan'
   readonly t: Translate
   readonly onOpen: () => void
   readonly renderSlot: RenderConfig
@@ -667,7 +669,7 @@ function packageRef(pkg: PackageView): PluginPackageRef {
  */
 function ItemDetail({ item, slot, t, onBack, renderSlot, form }: {
   readonly item: OfficialItem
-  readonly slot: 'plugins.item' | 'plugins.shiguredo'
+  readonly slot: 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan'
   readonly t: Translate
   readonly onBack: () => void
   readonly renderSlot: RenderConfig
@@ -1715,7 +1717,10 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
   const shiguredoCards = ledger.shiguredo.map(item => (
     <ItemCard key={`shiguredo:${item.id}`} item={item} slot="plugins.shiguredo" t={t} renderSlot={renderSlot} onOpen={() => { setView({ kind: 'item', id: item.id }) }} />
   ))
-  const renderGroup = (id: 'basic' | 'extensions' | 'shiguredo' | 'bundles', heading: string, cards: readonly ReactNode[]): ReactNode => {
+  const akiyanCards = ledger.akiyan.map(item => (
+    <ItemCard key={`akiyan:${item.id}`} item={item} slot="plugins.akiyan" t={t} renderSlot={renderSlot} onOpen={() => { setView({ kind: 'item', id: item.id }) }} />
+  ))
+  const renderGroup = (id: 'basic' | 'extensions' | 'shiguredo' | 'akiyan' | 'bundles', heading: string, cards: readonly ReactNode[]): ReactNode => {
     const offersMore = id === 'extensions' && more.length > 0
     if (cards.length === 0 && !offersMore) return null
     return (
@@ -1913,6 +1918,7 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
                     {renderGroup('basic', t('basicTitle'), basicCards)}
                     {renderGroup('extensions', t('extensionsTitle'), extensions.map(packageCard))}
                     {renderGroup('shiguredo', t('shiguredoTitle'), shiguredoCards)}
+                    {renderGroup('akiyan', t('akiyanTitle'), akiyanCards)}
                     {renderGroup('bundles', t('bundlesTitle'), mine.map(packageCard))}
                   </>
                 )}

@@ -1,7 +1,7 @@
 /**
  * Which plugins bring their own configuration to the Plugins page, read from
  * the slots the page declares (the official plugins listed beside the official
- * bundles, the Shiguredo built-in plugin settings group, the bundles with a
+ * bundles, the Shiguredo and akiyan built-in plugin settings groups, the bundles with a
  * form on their page, the rows with a page of their own) and from the
  * Factory-declared `settings.section` (the plugins' settings pages). The
  * projection follows the slot ledgers and the active locale and keeps its
@@ -36,6 +36,7 @@ export interface SettingsSectionItem {
 export interface ConfigLedger {
   readonly items: readonly OfficialItem[]
   readonly shiguredo: readonly OfficialItem[]
+  readonly akiyan: readonly OfficialItem[]
   readonly bundles: ReadonlySet<string>
   readonly rows: ReadonlySet<string>
   readonly sections: readonly SettingsSectionItem[]
@@ -51,7 +52,7 @@ export function rowConfigKey(bundle: string, rowId: string): string {
   return `${bundle}#${rowId}`
 }
 
-const SLOTS = ['plugins.item', 'plugins.shiguredo', 'plugins.bundle.config', 'plugins.row.config', 'settings.section'] as const
+const SLOTS = ['plugins.item', 'plugins.shiguredo', 'plugins.akiyan', 'plugins.bundle.config', 'plugins.row.config', 'settings.section'] as const
 
 /**
  * Project the configuration ledgers as one observable the page binds.
@@ -61,8 +62,8 @@ const SLOTS = ['plugins.item', 'plugins.shiguredo', 'plugins.bundle.config', 'pl
 export function configLedgerSource(ctx: ClientContext): HostObservable<ConfigLedger> {
   let versions: readonly number[] = []
   let revision = -1
-  let ledger: ConfigLedger = { items: [], shiguredo: [], bundles: new Set(), rows: new Set(), sections: [] }
-  const itemsOf = (name: 'plugins.item' | 'plugins.shiguredo'): readonly OfficialItem[] =>
+  let ledger: ConfigLedger = { items: [], shiguredo: [], akiyan: [], bundles: new Set(), rows: new Set(), sections: [] }
+  const itemsOf = (name: 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan'): readonly OfficialItem[] =>
     ctx.slots.entries(name).map(entry => ({
       /* v8 ignore next -- list-slot registration requires id */
       id: entry.options.id ?? '',
@@ -80,6 +81,7 @@ export function configLedgerSource(ctx: ClientContext): HostObservable<ConfigLed
         ledger = {
           items: itemsOf('plugins.item'),
           shiguredo: itemsOf('plugins.shiguredo'),
+          akiyan: itemsOf('plugins.akiyan'),
           bundles: keysOf('plugins.bundle.config'),
           rows: keysOf('plugins.row.config'),
           sections: ctx.slots.entries('settings.section').map((entry) => {

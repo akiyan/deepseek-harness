@@ -1,4 +1,5 @@
 /** Stateless text-area presentation over the InputBar's borrowed editor. */
+import { useId } from 'react'
 import type { CSSProperties, KeyboardEventHandler, ReactNode, RefObject } from 'react'
 import type { LexicalEditor } from 'lexical'
 import clsx from 'clsx'
@@ -22,20 +23,30 @@ export interface DraftEditorProps {
   readonly onWorkspaceKeyDown: KeyboardEventHandler<HTMLDivElement>
   readonly hint: string | null
   readonly showPlaceholder: boolean
+  readonly suggestion?: {
+    readonly text: string
+    readonly label: string
+    readonly tab: string
+    readonly tap: string
+    readonly announce: string
+    readonly onAccept: () => void
+    readonly onDismiss: () => boolean
+  } | null
 }
 
 /**
- * Render the existing scrollport, editable surface, placeholder, and chip portals.
- * @param props - borrowed editor and presentation values; this component owns no Hooks.
- * @returns the existing text-area DOM without an additional wrapper.
+ * Render the scrollport, editable surface, placeholder or suggestion, and chip portals.
+ * @param props - borrowed editor and presentation values.
+ * @returns the text-area DOM without an additional wrapper.
  */
 export function DraftEditor({
   classNames: css, editor, scrollRef, editable, editorDisabled, phase, placeholderText, ariaLabel,
-  workspaceTrigger, workspacePickerOpen, onWorkspaceKeyDown, hint, showPlaceholder,
+  workspaceTrigger, workspacePickerOpen, onWorkspaceKeyDown, hint, showPlaceholder, suggestion = null,
 }: DraftEditorProps): ReactNode {
+  const suggestionId = useId()
   return (
     <div ref={scrollRef} className={css.scroll} data-input-scroll>
-      <HoverCardGroup className={css.grow}>
+      <HoverCardGroup className={clsx(css.grow, suggestion !== null && css.growWithSuggestion)}>
         <ComposerContentEditable
           editor={workspaceTrigger ? null : editor}
           editable={editable}
@@ -46,17 +57,39 @@ export function DraftEditor({
           // The placeholder was the textarea's accessible name; a div's
           // data attribute is not, so the label restores it.
           aria-label={ariaLabel}
+          aria-describedby={suggestion === null ? undefined : suggestionId}
           aria-haspopup={workspaceTrigger ? 'menu' : undefined}
           aria-expanded={workspaceTrigger ? workspacePickerOpen : undefined}
           tabIndex={workspaceTrigger ? 0 : undefined}
           onKeyDown={workspaceTrigger ? onWorkspaceKeyDown : undefined}
           style={hint === null ? undefined : { '--dsh-composer-hint': JSON.stringify(hint) } as CSSProperties}
         />
-        {showPlaceholder && (
+        {suggestion !== null ? (
+          <div className={css.suggestion} data-composer-prompt-suggestion>
+            <span id={suggestionId} className={css.suggestionText}>{suggestion.text}</span>
+            <button
+              type="button"
+              className={css.suggestionAction}
+              aria-label={suggestion.label}
+              aria-describedby={suggestionId}
+              onClick={suggestion.onAccept}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing
+                  && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && suggestion.onDismiss()) {
+                  event.preventDefault()
+                }
+              }}
+            >
+              <kbd className={css.suggestionKey} aria-hidden>{suggestion.tab}</kbd>
+              <span className={css.suggestionTap} aria-hidden>{suggestion.tap}</span>
+            </button>
+          </div>
+        ) : showPlaceholder && (
           <div aria-hidden className={css.placeholder} data-composer-placeholder>
             {placeholderText}
           </div>
         )}
+        <div className={css.suggestionStatus} aria-live="polite" aria-atomic="true">{suggestion?.announce}</div>
         <DecoratorPortals editor={workspaceTrigger ? null : editor} />
       </HoverCardGroup>
     </div>

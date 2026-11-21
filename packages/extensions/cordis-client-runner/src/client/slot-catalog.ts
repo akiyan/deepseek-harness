@@ -936,7 +936,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     doc: 'Resident composer body, including the no-Session inert state; fixed overlays must portal to\nthe document body because the docked composer contains them.',
     registerOptions: [],
     ownerProps: [
-      '/** Owner share of the resident composer bar. */\nexport interface ComposerBarOwnerProps {\n  /** Hero uses centered placement; composer uses the active bottom placement. */\n  variant: \'hero\' | \'composer\'\n  /** Conversation content occurrence rendering this composer; an unaddressed document paste reaches the main one. */\n  occurrence: ConversationContentInputProps[\'variant\']\n  /** A feature-owned reason that makes message input inert while leaving model selection live. */\n  blocked?: { readonly reason: string }\n  /** Lock all message actions while preserving the resident composer surface. */\n  disabled?: boolean\n  /** Whether the shared Workspace picker is expanded. */\n  workspacePickerOpen?: boolean\n  /** Open the Workspace picker from the inert composer surface. */\n  onRequestWorkspace?: () => void\n  placeholder?: string\n  /** Optional content rendered above the composer surface. */\n  accessory?: ReactNode\n}',
+      '/** Owner share of the resident composer bar. */\nexport interface ComposerBarOwnerProps {\n  /** Hero uses centered placement; composer uses the active bottom placement. */\n  variant: \'hero\' | \'composer\'\n  /** Conversation content occurrence rendering this composer; an unaddressed document paste reaches the main one. */\n  occurrence: ConversationContentInputProps[\'variant\']\n  /** A feature-owned reason that makes message input inert while leaving model selection live. */\n  blocked?: { readonly reason: string }\n  /** Whether an approval or question currently owns this Session\'s input. */\n  pendingInteraction?: boolean\n  /** Lock all message actions while preserving the resident composer surface. */\n  disabled?: boolean\n  /** Whether the shared Workspace picker is expanded. */\n  workspacePickerOpen?: boolean\n  /** Open the Workspace picker from the inert composer surface. */\n  onRequestWorkspace?: () => void\n  placeholder?: string\n  /** Optional content rendered above the composer surface. */\n  accessory?: ReactNode\n}',
     ],
     ownerPropsReferences: [
       'ConversationContentInputProps',
@@ -3553,7 +3553,63 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.add.actions\', () => ctx.slots.register(\n      { name: \'plugins.add.actions\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:135',
+    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:115',
+  },
+  {
+    key: 'plugins.akiyan',
+    kind: 'list',
+    scope: 'root',
+    summary: 'One akiyan-built-in settings card (`summary`) and detail page (`page`) after the Shiguredo group.',
+    doc: 'One akiyan-built-in settings card (`summary`) and detail page (`page`) after the Shiguredo group.',
+    registerOptions: [
+      {
+        name: 'id',
+        requirement: 'required',
+        type: 'string',
+        doc: 'Your cell key. Use an id of your own: a fresh id is added beside the shipped entries, while reusing a shipped id puts you in THAT cell and replaces it. Owners that filter by id address you by it.',
+      },
+      {
+        name: 'order',
+        requirement: 'optional',
+        type: 'number',
+        doc: 'Position among the entries, ascending (default 0).',
+      },
+      {
+        name: 'label',
+        requirement: 'optional',
+        type: 'string | (() => string)',
+        doc: 'Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.',
+      },
+    ],
+    ownerProps: [
+      '/** The view the Plugins page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone; `page` renders the setting and its controls. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions when the entry key is a settings namespace. */\n  readonly form?: ConfigPageForm | undefined\n}',
+    ],
+    ownerPropsReferences: [
+      'ConfigPageForm',
+    ],
+    standardProps: [
+      'useRemoteAccess: (action: RemoteEndpoint) => boolean',
+      'useResource: UseResource',
+      'useContextMenu: UseContextMenu',
+      'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
+      'usePanelInfo: UsePanelInfo',
+      'useSessionStatus: UseSessionStatus',
+      'useSessions: UseSessions',
+      'useSessionRetainInfo: UseSessionRetainInfo',
+      'useSessionAccess: (sessionId: SessionId, action: RemoteEndpoint) => boolean',
+      'useWorkspaceAccess: (workspaceId: WorkspaceId, action: RemoteEndpoint) => boolean',
+    ],
+    keyDomain: '',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'main\' (client-ui-plugin-manager), so it exists while that entry is mounted',
+    occupants: [
+      'client-ui-conversation PromptSuggestionRow id \'composer-prompt-suggestions\'',
+      'client-ui-settings-web-search-exa ExaSearchCard id \'web-search-exa\'',
+    ],
+    replaceRisk: 'none',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.akiyan\', () => ctx.slots.register(\n      { name: \'plugins.akiyan\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:135',
   },
   {
     key: 'plugins.bundle.activation',
@@ -3596,7 +3652,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.bundle.activation\', () => ctx.slots.register(\n      { name: \'plugins.bundle.activation\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:143',
+    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:123',
   },
   {
     key: 'plugins.bundle.config',
@@ -3613,7 +3669,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** The view the page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone, as text or inline nodes; `page` renders the form with its save control. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions for this page\'s entry. */\n  readonly form?: ConfigPageForm | undefined\n}',
+      '/** The view the Plugins page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone; `page` renders the setting and its controls. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions when the entry key is a settings namespace. */\n  readonly form?: ConfigPageForm | undefined\n}',
     ],
     ownerPropsReferences: [
       'ConfigPageForm',
@@ -3643,7 +3699,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.bundle.config\', () => ctx.slots.register(\n      { name: \'plugins.bundle.config\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:167',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:141',
   },
   {
     key: 'plugins.detail.actions',
@@ -3696,7 +3752,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.detail.actions\', () => ctx.slots.register(\n      { name: \'plugins.detail.actions\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:181',
+    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:129',
   },
   {
     key: 'plugins.detail.badge',
@@ -3751,7 +3807,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.detail.badge\', () => ctx.slots.register(\n      { name: \'plugins.detail.badge\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:186',
+    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:134',
   },
   {
     key: 'plugins.detail.section',
@@ -3804,14 +3860,14 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.detail.section\', () => ctx.slots.register(\n      { name: \'plugins.detail.section\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:193',
+    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:141',
   },
   {
     key: 'plugins.item',
     kind: 'list',
     scope: 'root',
-    summary: 'One official plugin the Plugins page lists in its Official group after the official bundles: `label` is the card\'s title and `order` its place.',
-    doc: 'One official plugin the Plugins page lists in its Official group after\nthe official bundles: `label` is the card\'s title and `order` its place.\nThe page renders the entry as the card\'s one-liner (`view: \'summary\'`)\nand, once the card is opened, as the body of the plugin\'s own page\n(`view: \'page\'`). OCCUPIED by the official settings pages, one companion\npackage per host-plane namespace; a bundle\'s configuration belongs in\n`plugins.bundle.config` or `plugins.row.config` instead.',
+    summary: 'One official plugin the Plugins page lists in its built-in settings group: `label` is the card\'s title and `order` its place.',
+    doc: 'One official plugin the Plugins page lists in its built-in settings\ngroup: `label` is the card\'s title and `order` its place. The page renders\nthe entry as the card\'s one-liner (`view: \'summary\'`) and, once the card\nis opened, as the body of the plugin\'s own page (`view: \'page\'`). A\nbundle\'s configuration belongs in `plugins.bundle.config` or\n`plugins.row.config` instead.',
     registerOptions: [
       {
         name: 'id',
@@ -3833,7 +3889,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** The view the page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone, as text or inline nodes; `page` renders the form with its save control. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions for this page\'s entry. */\n  readonly form?: ConfigPageForm | undefined\n}',
+      '/** The view the Plugins page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone; `page` renders the setting and its controls. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions when the entry key is a settings namespace. */\n  readonly form?: ConfigPageForm | undefined\n}',
     ],
     ownerPropsReferences: [
       'ConfigPageForm',
@@ -3862,7 +3918,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.item\', () => ctx.slots.register(\n      { name: \'plugins.item\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:153',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:125',
   },
   {
     key: 'plugins.row.config',
@@ -3879,7 +3935,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** The view the page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone, as text or inline nodes; `page` renders the form with its save control. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions for this page\'s entry. */\n  readonly form?: ConfigPageForm | undefined\n}',
+      '/** The view the Plugins page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone; `page` renders the setting and its controls. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions when the entry key is a settings namespace. */\n  readonly form?: ConfigPageForm | undefined\n}',
     ],
     ownerPropsReferences: [
       'ConfigPageForm',
@@ -3905,7 +3961,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.row.config\', () => ctx.slots.register(\n      { name: \'plugins.row.config\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:175',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:149',
   },
   {
     key: 'plugins.shiguredo',
@@ -3934,7 +3990,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** The view the page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone, as text or inline nodes; `page` renders the form with its save control. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions for this page\'s entry. */\n  readonly form?: ConfigPageForm | undefined\n}',
+      '/** The view the Plugins page asks a configuration entry for. */\nexport interface PluginConfigViewProps {\n  /** `summary` renders the one-liner alone; `page` renders the setting and its controls. */\n  readonly view: \'summary\' | \'page\'\n  /** Host-owned configuration values and write actions when the entry key is a settings namespace. */\n  readonly form?: ConfigPageForm | undefined\n}',
     ],
     ownerPropsReferences: [
       'ConfigPageForm',
@@ -3961,7 +4017,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.shiguredo\', () => ctx.slots.register(\n      { name: \'plugins.shiguredo\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:161',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:133',
   },
   {
     key: 'plugins.tab',
@@ -4018,7 +4074,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.tab\', () => ctx.slots.register(\n      { name: \'plugins.tab\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:141',
+    source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:121',
   },
   {
     key: 'rightbar',
@@ -4185,7 +4241,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.action\', () => ctx.slots.register(\n      { name: \'settings.action\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:60',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:61',
   },
   {
     key: 'settings.close',
@@ -4219,7 +4275,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.close\', () => ctx.slots.register(\n      { name: \'settings.close\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:66',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:67',
   },
   {
     key: 'settings.general.item',
@@ -4285,7 +4341,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.general.item\', () => ctx.slots.register(\n      { name: \'settings.general.item\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:115',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:116',
   },
   {
     key: 'settings.header',
@@ -4319,7 +4375,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.header\', () => ctx.slots.register(\n      { name: \'settings.header\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:54',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:55',
   },
   {
     key: 'settings.launcher',
@@ -4353,7 +4409,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.launcher\', () => ctx.slots.register(\n      { name: \'settings.launcher\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:32',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:33',
   },
   {
     key: 'settings.launcher.notifications',
@@ -4590,7 +4646,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.notice\', () => ctx.slots.register(\n      { name: \'settings.notice\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:38',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:39',
   },
   {
     key: 'settings.onboarding',
@@ -4644,7 +4700,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.onboarding\', () => ctx.slots.register(\n      { name: \'settings.onboarding\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:100',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:101',
   },
   {
     key: 'settings.section',
@@ -4701,7 +4757,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.section\', () => ctx.slots.register(\n      { name: \'settings.section\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:81',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:82',
   },
   {
     key: 'settings.section.icon',
@@ -4752,7 +4808,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.section.icon\', () => ctx.slots.register(\n      { name: \'settings.section.icon\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:89',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:90',
   },
   {
     key: 'settings.trigger',
@@ -4786,7 +4842,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.trigger\', () => ctx.slots.register(\n      { name: \'settings.trigger\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings/src/client/contract/slots.ts:48',
+    source: 'packages/client/ui-settings/src/client/contract/slots.ts:49',
   },
   {
     key: 'shell.bottom',

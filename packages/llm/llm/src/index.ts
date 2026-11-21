@@ -149,6 +149,12 @@ export class LlmError extends HarnessError {
   }
 }
 
+/** Dispatch policy for a registration-bound call. */
+export interface LlmPrepareCallOptions {
+  /** Refuse adapter substitution or configured routing windows instead of dispatching through them. */
+  readonly exactRoute?: boolean
+}
+
 /** One model call whose config and adapter registration were resolved together. */
 export interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
@@ -300,6 +306,8 @@ export abstract class LlmAdapter {
    * Bind exact model metadata and the eventual request dispatch to one adapter generation.
    * Dynamic adapters override this so settings changes between preparation and
    * dispatch cannot combine one generation's capabilities with another's endpoint.
+   * Adapters with internal routing windows report them in the prepared model's
+   * `routing` metadata even when the requested route would currently run locally.
    * @param provider - registered provider route.
    * @param model - exact model id.
    * @param signal - cancellation for model resolution.
@@ -1021,19 +1029,26 @@ export class LlmRuntime extends TypertRemoteService {
    * @param config - provider/model route and optional concrete request controls.
    * @param signal - optional cancellation for adapter-owned capability lookup.
    * @param configure - pure control selection, called once before defaults and validation.
+   * @param options - omit to allow the adapter's configured routing; `exactRoute` refuses substitutions.
    * @returns a prepared config and its registration-bound stream entry point.
+   * @throws {LlmError} `INVALID_PREPARED_CALL` if an exact route is required but the model can be redirected.
    */
   async prepareCall(
     config: LlmCallConfig,
     signal?: AbortSignal,
     configure?: ConfigureCall,
+    options?: LlmPrepareCallOptions,
   ): Promise<PreparedLlmCall> {
     signal?.throwIfAborted()
     const { provider, model, ...controls } = config
-    const target = this.dispatchTarget(provider, model)
+    const exactRoute = options?.exactRoute === true
+    const target = this.dispatchTarget(provider, model, exactRoute)
     const adapterCall = await target.executing.adapter.prepareCall(target.provider, target.model, signal)
     signal?.throwIfAborted()
     const described = this.normalizeModelInfo(target.executing, target.model, adapterCall.model)
+    if (exactRoute && described.routing !== undefined) {
+      throw new LlmError(`provider "${provider}" model "${model}" declares alternate routing windows`, 'INVALID_PREPARED_CALL')
+    }
     const modelInfo = target.redirected ? this.executedModelInfo(described, provider, model) : described
     const proposed = configure === undefined
       ? config
@@ -1104,14 +1119,18 @@ export class LlmRuntime extends TypertRemoteService {
    * stay the call's identity.
    * @param provider - provider route the caller named.
    * @param model - exact model id the caller named.
+   * @param exactRoute - whether to refuse an adapter's alternate route before preparing it.
    * @returns the requested and executing registrations, the executing route, and whether substitution applies.
-   * @throws {LlmError} `NO_ADAPTER` when the requested route is unregistered, or when the named alternate has no adapter.
+   * @throws {LlmError} `NO_ADAPTER` for a missing registration or `INVALID_PREPARED_CALL` for a disallowed alternate.
    */
-  private dispatchTarget(provider: string, model: string): DispatchTarget {
+  private dispatchTarget(provider: string, model: string, exactRoute = false): DispatchTarget {
     const requested = this.registration(provider)
     const alternate = requested.adapter.alternateRoute(provider, model)
     if (alternate === undefined) {
       return { requested, executing: requested, provider, model, redirected: false }
+    }
+    if (exactRoute) {
+      throw new LlmError(`provider "${provider}" model "${model}" requires an alternate route`, 'INVALID_PREPARED_CALL')
     }
     try {
       return {
