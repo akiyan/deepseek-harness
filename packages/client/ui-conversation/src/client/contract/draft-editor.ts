@@ -96,20 +96,17 @@ export interface ComposerKeyboard {
   caretSpan(): EditSelection
   /** Keyboard arbitration while the menu is open ('pass' when no pipeline). */
   arbitrate(key: ArbitrateKey, composing: boolean): ArbitrateOutcome
+  /** Whether the keyboard is browsing prompts while preserving the working draft. */
+  isRecallingPrompt?(): boolean
   /** Space adjudication; true = the input applied a claim — caller preventDefaults. */
   space(): boolean
   /** Dismiss the popupSelect shell (any interaction outside the box). */
   dismissPopup(): void
   /**
-   * Replace the draft with the text of an adjacent human prompt in the loaded
-   * Session history; the caller passes only arrows with the caret at the
-   * draft end. Browsing starts from an empty draft and continues only while
-   * the draft is the unedited prompt it last showed, so typed or edited text
-   * is never replaced; moving past the newest prompt returns to the empty
-   * draft. Each step is an ordinary undoable edit.
-   * @param direction - history direction.
-   * @returns whether an adjacent prompt exists and the replacement is scheduled;
-   * inside a key command it runs after that update, and the caller consumes the key.
+   * Browse human Session prompts as plain text, loading older pages as needed.
+   * Each step is undoable; moving past the newest prompt restores the working draft.
+   * @param direction - history direction, after keymap arbitration.
+   * @returns whether the caller should consume the key; a replacement inside a key command runs after that update.
    */
   recallHistory(direction: 'older' | 'newer'): boolean
   /**

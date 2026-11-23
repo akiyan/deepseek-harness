@@ -109,6 +109,24 @@ describe('SettingsSecretField', () => {
     expect(input).toHaveProperty('type', 'password')
   })
 
+  it('hints that an optional API token is not a login password', () => {
+    render(
+      <SettingsSecretField
+        {...secret}
+        avoidPasswordManager
+        text=""
+        configured={false}
+        stateLabel="No key is configured."
+        onEdit={vi.fn()}
+      />,
+    )
+    const input = screen.getByLabelText('API key')
+    expect(input).toHaveProperty('type', 'text')
+    expect(input.getAttribute('autocomplete')).toBe('off')
+    expect(input.getAttribute('data-1p-ignore')).toBe('true')
+    expect(input.getAttribute('data-lpignore')).toBe('true')
+  })
+
   it('reports the configured state the Host holds', () => {
     const { rerender } = render(
       <SettingsSecretField

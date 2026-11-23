@@ -100,7 +100,7 @@ function subjectOf(owner: unknown): PluginsSubject | undefined {
   return typeof owner === 'object' && owner !== null && 'subject' in owner ? (owner as PluginDetailProps).subject : undefined
 }
 
-const NO_CONFIG: ConfigLedger = { items: [], shiguredo: [], bundles: new Set(), rows: new Set(), sections: [] }
+const NO_CONFIG: ConfigLedger = { items: [], shiguredo: [], akiyan: [], bundles: new Set(), rows: new Set(), sections: [] }
 
 function renderTab(
   state: Partial<PluginManagerState> = {}, config: Partial<ConfigLedger> = {},
@@ -220,6 +220,7 @@ function renderTab(
   return {
     navigation,
     setTabs: (next: readonly PluginTab[]) => { act(() => { tabLedger.set(next) }) },
+    setConfig: (next: Partial<ConfigLedger>) => { act(() => { ledger.set({ ...ledger.getSnapshot(), ...next }) }) },
     hidePage: () => { showPage = false; rerender(contents()) },
     showPage: () => { showPage = true; rerender(contents()) },
     props,
@@ -1450,6 +1451,72 @@ describe('PluginManagerPage', () => {
       expect(within(detail).getByRole('form', { name: 'guard form' })).toBeTruthy()
       fireEvent.click(within(detail).getByRole('button', { name: en.backToList }))
       expect(screen.getByRole('heading', { name: en.shiguredoTitle })).toBeTruthy()
+    })
+
+    it('lists akiyan built-in plugin settings in their own group after Experimental', () => {
+      renderTab(
+        { packages: [pkg()] },
+        { akiyan: [{ id: 'web-search-exa', label: 'Exa search settings' }] },
+        {
+          'plugins.akiyan:web-search-exa': view => (view === 'summary' ? 'Configure Exa search.' : <form aria-label="Exa form" />),
+        },
+      )
+      expect([...document.querySelectorAll('[data-plugin-group]')].map(group => group.getAttribute('data-plugin-group')))
+        .toEqual(['akiyan', 'bundles'])
+      const akiyan = document.querySelector('[data-plugin-group="akiyan"]') as HTMLElement
+      expect(within(akiyan).getByRole('heading', { name: en.akiyanTitle })).toBeTruthy()
+      expect(within(akiyan).getByText('Configure Exa search.')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: en.openDetail.replace('{name}', 'Exa search settings') }))
+      const detail = document.querySelector('[data-plugin-item-detail="web-search-exa"]') as HTMLElement
+      expect(within(detail).getByRole('heading', { level: 3 }).textContent).toBe('Exa search settings')
+      expect(within(detail).getByText('Configure Exa search.')).toBeTruthy()
+      expect(within(detail).getByRole('form', { name: 'Exa form' })).toBeTruthy()
+      fireEvent.click(within(detail).getByRole('button', { name: en.backToList }))
+      expect(screen.getByRole('heading', { name: en.akiyanTitle })).toBeTruthy()
+    })
+
+    it('keeps one notification bundle card and its global switch as browser settings come and go', () => {
+      const title = 'Session push notifications'
+      const icon = '/api/plugin-manager/icon/session-push.svg'
+      const push = pkg({ name: '@akiyan/dsh-session-web-push', meta: { title, icon } })
+      const settings = { id: 'session-web-push', label: title }
+      const { actions, set, setConfig } = renderTab({ packages: [push, pkg()] }, { akiyan: [settings] }, {
+        'plugins.akiyan:session-web-push': view => (view === 'page' ? <form aria-label="Browser notification settings" /> : 'Browser notifications'),
+      })
+      const open = en.openDetail.replace('{name}', title)
+      const toggle = en.enableToggle.replace('{name}', title)
+      const card = () => screen.getByRole('button', { name: open }).closest('li')
+      const assertCard = () => {
+        expect(card()?.closest('[data-plugin-group]')?.querySelector('h3')?.textContent).toBe(en.akiyanTitle)
+        expect(card()?.querySelector('img')?.getAttribute('src')).toBe(icon)
+      }
+      assertCard()
+      fireEvent.click(screen.getByRole('button', { name: open }))
+      const settingsForm = () => screen.queryByRole('form', { name: 'Browser notification settings' })
+      const detailToggle = () => screen.getByRole('switch', { name: toggle })
+      expect(settingsForm()).not.toBeNull()
+      expect(detailToggle().getAttribute('aria-checked')).toBe('true')
+      fireEvent.click(detailToggle())
+      expect(actions.setEnabled).toHaveBeenLastCalledWith(push.name, false)
+
+      set({ packages: [{ ...push, enabled: false }] })
+      expect(settingsForm()).toBeNull() // The client registration may still be present when the Host switches off.
+      setConfig({ akiyan: [] })
+      expect(detailToggle().getAttribute('aria-checked')).toBe('false')
+      fireEvent.click(screen.getByRole('button', { name: en.backToList }))
+      assertCard()
+      fireEvent.click(screen.getByRole('button', { name: open }))
+      fireEvent.click(detailToggle())
+      expect(actions.setEnabled).toHaveBeenLastCalledWith(push.name, true)
+      set({ packages: [push] })
+      expect(settingsForm()).toBeNull()
+      setConfig({ akiyan: [settings] })
+      expect(settingsForm()).not.toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: en.uninstallLabel.replace('{name}', title) }))
+      expect(actions.uninstall).toHaveBeenCalledWith(push.name)
+      set({ packages: [] })
+      expect(screen.queryByRole('button', { name: open })).toBeNull()
+      expect(settingsForm()).toBeNull()
     })
 
     it.each([

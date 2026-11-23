@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Prompt recall from the loaded Session history through the real input shell and the composer keymap. */
+/** Prompt recall through the real input shell and the composer keymap. */
 import { setImmediate } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
 import { MutableSessionEventSource } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -18,6 +18,9 @@ import type { CommandClaim, InputTriggerController, SubmitOutcome } from '../src
 import { registerComposerKeymap } from '../src/client/input/editor/keymap.ts'
 import { installDraftKeymap } from '../src/client/input/editor/view-binding.ts'
 import { SessionInputShell, type SessionInputDeps } from '../src/client/input/facade.ts'
+
+// jsdom does not measure visual lines; these cases exercise hard boundaries and the empty caret.
+Range.prototype.getBoundingClientRect = () => new DOMRect()
 
 /** A loaded event window; `prompt` appends one durable user message, newest last. */
 function history() {
@@ -94,23 +97,27 @@ describe('loaded prompt recall', () => {
     expect(withPrompts().shell.recallHistory('older')).toBe(false)
   })
 
-  it('never replaces typed text', () => {
+  it('returns to typed text after browsing a prompt', () => {
     const { shell } = withPrompts('sent')
     shell.setDraft('typed')
-    expect(shell.recallHistory('older')).toBe(false)
+    expect(shell.recallHistory('older')).toBe(true)
+    expect(shell.snapshot.draft).toBe('sent')
+    expect(shell.recallHistory('newer')).toBe(true)
     expect(shell.snapshot.draft).toBe('typed')
   })
 
-  it('ends browsing once a recalled prompt is edited', () => {
+  it('continues browsing from the selected prompt after an edit', () => {
     const { shell } = withPrompts('first', 'second')
+    shell.setDraft('working draft')
     expect(shell.recallHistory('older')).toBe(true)
     shell.paste(' edited')
-    expect(shell.recallHistory('older')).toBe(false)
-    expect(shell.recallHistory('newer')).toBe(false)
     expect(shell.snapshot.draft).toBe('second edited')
-    shell.setDraft('')
     expect(shell.recallHistory('older')).toBe(true)
+    expect(shell.snapshot.draft).toBe('first')
+    expect(shell.recallHistory('newer')).toBe(true)
     expect(shell.snapshot.draft).toBe('second')
+    expect(shell.recallHistory('newer')).toBe(true)
+    expect(shell.snapshot.draft).toBe('working draft')
   })
 
   it('ends browsing when the draft is replaced programmatically', () => {
@@ -127,11 +134,8 @@ describe('loaded prompt recall', () => {
     expect(shell.recallHistory('older')).toBe(true)
     shell.paste(' edited')
     expect(await undo(shell)).toBe('first')
-    expect(shell.recallHistory('newer')).toBe(false)
     expect(await undo(shell)).toBe('second')
     expect(await undo(shell)).toBe('')
-    expect(shell.recallHistory('older')).toBe(true)
-    expect(shell.snapshot.draft).toBe('second')
   })
 
   it('keeps an undo target after a submission cut the history', async () => {
@@ -208,7 +212,7 @@ describe('loaded prompt recall', () => {
     expect(shell.snapshot.draft).toBe('A')
   })
 
-  it('stops browsing when the shown prompt left the window', () => {
+  it('does not substitute another prompt when the selected one left the window', () => {
     const h = history()
     h.prompt('A')
     const shell = makeShell({ events: h.events })
@@ -216,6 +220,8 @@ describe('loaded prompt recall', () => {
     h.events.replace([], false)
     expect(shell.recallHistory('older')).toBe(false)
     expect(shell.snapshot.draft).toBe('A')
+    expect(shell.recallHistory('newer')).toBe(true)
+    expect(shell.snapshot.draft).toBe('')
   })
 
   it('reads the window as it is when the arrow arrives', () => {
@@ -245,6 +251,7 @@ describe('loaded prompt recall', () => {
     const { shell } = withPrompts('sent')
     const root = document.createElement('div')
     root.contentEditable = 'true'
+    root.tabIndex = 0
     document.body.append(root)
     onTestFinished(() => { shell.editor.setRootElement(null); root.remove() })
     shell.editor.setRootElement(root)
@@ -252,6 +259,7 @@ describe('loaded prompt recall', () => {
       arbitrate: () => 'pass', space: () => false, dismissPopup: () => {}, recallHistory: direction => shell.recallHistory(direction),
       canSubmit: () => true, submit: () => {}, intakeFiles: () => {}, pasteText: () => {},
     }))
+    root.focus()
     window.getSelection()?.collapse(root.firstElementChild ?? root, 0)
     expect(fireEvent.keyDown(root, { key: 'ArrowUp' })).toBe(false)
     await setImmediate()
@@ -282,6 +290,7 @@ describe('history arrow routing', () => {
     const editor = createEditor({ namespace: 'history-arrows', onError: (error) => { throw error } })
     const root = document.createElement('div')
     root.contentEditable = 'true'
+    root.tabIndex = 0
     document.body.append(root)
     onTestFinished(() => { editor.setRootElement(null); root.remove() })
     editor.setRootElement(root)
@@ -302,6 +311,7 @@ describe('history arrow routing', () => {
         $getRoot().append(paragraph)
       }
     }, { discrete: true })
+    root.focus()
     /** Collapse the DOM caret at a child offset of one paragraph, or inside that child's text. */
     const caret = (line: number, offset = 0, child?: number): void => {
       const block = root.children.item(line)
@@ -317,19 +327,21 @@ describe('history arrow routing', () => {
 
   it('recalls on unmodified arrows the menu passes and consumes the key', () => {
     const b = bench('draft')
-    b.caret(0, 5, 0)
+    b.caret(0, 0, 0)
     expect(b.key('ArrowUp')).toBe(false)
     expect(b.recallHistory).toHaveBeenLastCalledWith('older')
+    b.caret(0, 5, 0)
     expect(b.key('ArrowDown')).toBe(false)
     expect(b.recallHistory).toHaveBeenLastCalledWith('newer')
     b.recallHistory.mockReturnValue(false)
+    b.caret(0, 0, 0)
     expect(b.key('ArrowUp')).toBe(true)
   })
 
   it.each([{ shiftKey: true }, { altKey: true }, { ctrlKey: true }, { metaKey: true }, { isComposing: true }])(
     'leaves %j arrows to the browser', (init) => {
       const b = bench('draft')
-      b.caret(0, 5, 0)
+      b.caret(0, 0, 0)
       expect(b.key('ArrowUp', init)).toBe(true)
       expect(b.recallHistory).not.toHaveBeenCalled()
     },
@@ -337,37 +349,39 @@ describe('history arrow routing', () => {
 
   it('lets an open menu consume the arrow first', () => {
     const b = bench('draft')
-    b.caret(0, 5, 0)
+    b.caret(0, 0, 0)
     b.arbitrate.mockReturnValue('consumed')
     expect(b.key('ArrowUp')).toBe(false)
     expect(b.recallHistory).not.toHaveBeenCalled()
   })
 
-  it('recalls only with a collapsed caret at the draft end', () => {
+  it('only starts recall in the requested direction at a collapsed caret on the outside line', () => {
     const b = bench('top', '', 'bottom')
     b.caret(0, 0, 0)
-    expect(b.key('ArrowUp')).toBe(true)
+    expect(b.key('ArrowDown')).toBe(true)
     b.caret(1)
     expect(b.key('ArrowDown')).toBe(true)
     b.caret(2, 3, 0)
     expect(b.key('ArrowUp')).toBe(true)
     b.caret(2, 0, 0)
     window.getSelection()?.extend(window.getSelection()?.anchorNode ?? b.root, 6)
-    expect(b.key('ArrowUp')).toBe(true)
+    expect(b.key('ArrowDown')).toBe(true)
     expect(b.recallHistory).not.toHaveBeenCalled()
-    b.caret(2, 6, 0)
+    b.caret(0, 0, 0)
     expect(b.key('ArrowUp')).toBe(false)
+    b.caret(2, 6, 0)
     expect(b.key('ArrowDown')).toBe(false)
     expect(b.recallHistory).toHaveBeenCalledTimes(2)
   })
 
-  it('treats the end after typed line breaks as the draft end', () => {
+  it('recognizes typed line breaks when finding the outer line', () => {
     const b = bench('a\n\nb')
     // Children: text a, <br>, <br>, text b.
     b.caret(0, 2)
-    expect(b.key('ArrowUp')).toBe(true)
+    expect(b.key('ArrowDown')).toBe(true)
     b.caret(0, 1, 3)
-    expect(b.key('ArrowUp')).toBe(false)
+    expect(b.key('ArrowUp')).toBe(true)
+    expect(b.key('ArrowDown')).toBe(false)
     expect(b.recallHistory).toHaveBeenCalledOnce()
   })
 
@@ -387,7 +401,7 @@ describe('history arrow routing', () => {
 
   it('does not recall without a mounted root to read the caret from', () => {
     const b = bench('draft')
-    b.caret(0, 5, 0)
+    b.caret(0, 0, 0)
     const editor = createEditor({ namespace: 'detached', onError: (error) => { throw error } })
     const recallHistory = vi.fn(() => true)
     onTestFinished(registerComposerKeymap(editor, {
@@ -408,6 +422,7 @@ describe('history arrow routing', () => {
       const editor = createEditor({ namespace: 'gated', onError: (error) => { throw error } })
       const root = document.createElement('div')
       root.contentEditable = 'true'
+      root.tabIndex = 0
       document.body.append(root)
       onTestFinished(() => { editor.setRootElement(null); root.remove() })
       editor.setRootElement(root)
@@ -418,8 +433,10 @@ describe('history arrow routing', () => {
         current: {
           ...gate, canSteerQueue: false, running: false, steeringAvailable: false, busyEnter: 'queue',
           intakeFiles: () => {}, uploadsPending: false, uploadsHeldText: '', showToast: () => {}, canAcceptDrop: false,
+          acceptPromptSuggestion: () => false, discardPromptSuggestion: () => false,
         },
       }))
+      root.focus()
       window.getSelection()?.collapse(root.firstElementChild ?? root, 0)
       expect(fireEvent.keyDown(root, { key: 'ArrowUp' })).toBe(true)
       expect(recallHistory).toHaveBeenCalledTimes(recalls ? 1 : 0)

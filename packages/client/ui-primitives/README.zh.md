@@ -72,7 +72,7 @@ kind: "package-library"
 | `ImageLightbox` | 共享图片浮层，支持焦点恢复与 Esc 关闭。 |
 | `usePointerGrace` | 可取消的延迟关闭，让指针能够跨越触发控件与卡片间的空隙；卸载时清除待执行定时器。 |
 | `Toast` | 顶部居中的瞬时横幅，保持时长由所有者的 `holdMs` 决定。 |
-| `SettingsForm`、`SettingsValueField`、`SettingsSecretField` | 插件设置页的框架与控件：框架以 `labels` 接收文案，只在按钮点击时保存，卸载即丢弃；值字段显示暂存文本以及已覆盖标签和重置；密文字段每次为空，请求浏览器不要自动填入已保存的密码，只报告是否已配置。 |
+| `SettingsForm`、`SettingsValueField`、`SettingsSecretField` | 插件设置页的框架与控件：框架以 `labels` 接收文案，只在按钮点击时保存，卸载即丢弃；值字段显示暂存文本以及已覆盖标签和重置；密文字段每次为空，请求浏览器不要自动填入已保存的密码，只报告是否已配置。可选的 `avoidPasswordManager` 模式使用遮罩文本和忽略提示来输入 API token，而非登录密码输入框。 |
 | `SettingsFormModel`、`settingsNumberField`、`settingsTextField` | 这类页面背后基于设置 scope 的暂存编辑模型：草稿先暂存、保存时写入，字段是否被覆盖看用户层是否含有它，未落地的保存保留草稿。 |
 | `JsonTree`、`JsonBlock` | 只读 JSON 查看。 |
 | `MarkdownText`、`MarkdownDelegateProvider`、`CodeBlock`、`FenceCodeBlock`、`FenceMathBlock` | 不可信 GFM 与 TeX 数学、owner 委托的 HTTP(S) 导航与围栏渲染，以及高亮代码。`CodeBlock` 可通过 `lineNumbers` 开启行号；复制的源码不含行号栏，`contentRef` 则向需要把稳定源码包装节点用作滚动区的 owner 提供该节点。调用方提供自己的语言与复制工具栏时，设置 `showHeader={false}`。`diff` 与 `patch` 围栏按标记列划分行，按侧边栏文件 diff 的样式给新增、删除行上色，并按文件头写明的语言分别对该文件的删除侧与新增侧做语法高亮，因此源码 diff 保留语法颜色；标记列仍保留在复制的源码里。`CodeBlock.diff` 对任意 `lang` 强制开启（`true`）或关闭（`false`）这些行。`MarkdownDelegateProvider.renderCode` 按 `MarkdownDelegateFenceInfo` `{ lang, code, streaming, meta }`（`lang` 已转小写，`meta` 在存在时为 info string 其余部分）渲染每个带语言且有内容的围栏，包括 `math` 与 `diff` 围栏；无语言或无内容的围栏保留内置块。有 `renderCode` 时，每个这样的围栏渲染在一个块级外框里，由外框承担该围栏与相邻块之间的上下间距，外框内的代码块与展示公式不带外边距；没有 `renderCode` 时，围栏不加外框。`FenceCodeBlock` 把围栏正文渲染为代码块，可选 `diff` 开关；`FenceMathBlock` 把 `math` 围栏正文渲染为展示公式；二者即文档在没有 `renderCode` 时使用的内置块。 |

@@ -445,8 +445,16 @@ export class DraftEditorRuntime {
    * @param occurrences - reference occurrences in clipboard order.
    * @param quotes - atomic quotes in clipboard order.
    * @param labels - localized quote controls.
+   * @param undoable - record the restoration as a separate undo step.
    */
-  restoreDraft(draft: string, occurrences: readonly DraftReference[], quotes: readonly DraftQuote[] = [], labels: QuoteNodeLabels = { remove: '' }): void {
+  restoreDraft(
+    draft: string,
+    occurrences: readonly DraftReference[],
+    quotes: readonly DraftQuote[] = [],
+    labels: QuoteNodeLabels = { remove: '' },
+    undoable = false,
+  ): void {
+    if (undoable) this.keepUndoBaseline()
     this.editor.update(() => {
       const root = $getRoot()
       root.clear()
@@ -488,7 +496,7 @@ export class DraftEditorRuntime {
       }
       appendText(draft.slice(cursor))
       root.selectEnd()
-    }, { discrete: true, tag: HISTORY_MERGE_TAG })
+    }, { discrete: true, tag: undoable ? HISTORY_PUSH_TAG : HISTORY_MERGE_TAG })
   }
 
   /**

@@ -330,6 +330,8 @@ function mount(
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           useMenuLauncher={bindSnapshotSelector(createSnapshotStore<string | null>(null))}
+          useTriggerMenu={selector => selector({ open: false })}
+          usePromptSuggestionsEnabled={selector => selector(true)}
           stop={stop}
           t={t}
           renderSlotChain={(_key, _owner, options) => options?.fallback}

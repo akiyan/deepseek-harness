@@ -23,7 +23,9 @@ async function bench(options: { declareConversation?: boolean } = {}) {
     }),
     openSession: vi.fn(),
   } as never)
-  runtime.ctx.provide('configForms', { developerTools: { enabled: developerTools }, get: () => stubConfigForm().scope } as never)
+  const suggestionSettings = stubConfigForm<{ promptSuggestionsEnabled: boolean }>()
+  const getConfig = vi.fn((id: string) => id === 'session-controller' ? suggestionSettings.scope : stubConfigForm().scope)
+  runtime.ctx.provide('configForms', { developerTools: { enabled: developerTools }, get: getConfig } as never)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
@@ -33,11 +35,12 @@ async function bench(options: { declareConversation?: boolean } = {}) {
     await runtime.root.declare({
       'main': { kind: 'keyed', scope: 'root' },
       'settings.general.item': { kind: 'list', scope: 'root' },
+      'plugins.akiyan': { kind: 'list', scope: 'root' },
     }, (_props: { renderSlot?: unknown }) => null)
   }
   const feature = await runtime.mount({ inject: [...inject], apply }, syncedConfig({ busyEnter: 'queue', maxConcurrentFileUploads: 2 }))
   if (options.declareConversation !== false) runtime.renderRoot()
-  return { runtime, feature, developerTools }
+  return { runtime, feature, developerTools, suggestionSettings, getConfig }
 }
 
 function entry(
@@ -136,6 +139,19 @@ describe('target-neutral Conversation apply wiring', () => {
       .toEqual({ kind: 'chain', scope: 'session' })
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
       .toEqual(['composer-enter'])
+    await b.runtime.dispose()
+  })
+
+  it('exposes the prompt-suggestion setting only in akiyan Plugins, even when previously set to off', async () => {
+    const b = await bench()
+    expect(b.getConfig).toHaveBeenCalledWith('session-controller')
+    expect(b.runtime.slots.entries('plugins.akiyan')).toEqual([])
+    b.suggestionSettings.publish({ status: 'ready', value: { promptSuggestionsEnabled: false }, writable: true })
+    await vi.waitFor(() => {
+      expect(b.runtime.slots.entries('plugins.akiyan').map(row => row.options.id)).toEqual(['composer-prompt-suggestions'])
+    })
+    b.suggestionSettings.publish({ status: 'unavailable' })
+    await vi.waitFor(() => { expect(b.runtime.slots.entries('plugins.akiyan')).toEqual([]) })
     await b.runtime.dispose()
   })
 

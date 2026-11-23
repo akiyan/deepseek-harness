@@ -20,6 +20,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Eligible latest failed turn/end for an empty prompt, or null. */
     conversationContinuation: SessionSeq | null
+    /** Latest eligible completed turn; suggestion text is never a projection. */
+    promptSuggestionTurn: SessionProjectionSummaryExcluded<SessionSeq> | null
     /**
      * Image-intake limits enforced by the Session prompt endpoint. Boot
      * constant, excluded from Session summary payloads: every Session shares
@@ -328,6 +330,13 @@ export interface SessionPromptRequest {
 /** Receipt after one prompt enters the target Agent inbox. */
 export interface SessionPromptValue {
   readonly accepted: true
+}
+
+/** Request a suggestion for a newly observed completed turn in a live Session. */
+export interface SessionSuggestPromptRequest {
+  readonly sessionId: SessionId
+  /** Exact `turn/end` sequence just observed by the caller. */
+  readonly turnEndSeq: SessionSeq
 }
 
 /** Durable image read request. */

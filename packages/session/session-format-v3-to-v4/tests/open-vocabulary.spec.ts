@@ -17,6 +17,28 @@ describe('known V4 event interpretation', () => {
     expect(input.events.at(-1)?.seq).toBe(unknown.length + 1)
   })
 
+  it('preserves a prompt suggestion audit as a log-only row on both sides of a reader upgrade', () => {
+    const audit = {
+      type: 'session/prompt-suggestion-request',
+      data: { turnEndSeq: 1, route: { provider: 'p', model: 'm' }, system: 'instruction', input: 'exchange', maxTokens: 112 },
+    }
+    const prefix = [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const suffix = [
+      { type: 'turn/start', data: { turn: 2 } },
+      { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+    ]
+    const log = artifact([...prefix, { ...audit, ignorable: true }, ...suffix])
+    const older = new Set(['turn/start', 'turn/end'])
+    const current = new Set([...older, audit.type])
+    expect(restoreReleasedV4Artifact(log, older).events).toEqual(log.events)
+    expect(restoreReleasedV4Artifact(log, current).events).toEqual(log.events)
+    expect(restoreReleasedV4Artifact(artifact([...prefix, ...suffix]), current).events).toHaveLength(4)
+    expect(() => restoreReleasedV4Artifact(artifact([...prefix, audit, ...suffix]), older)).toThrow(/unknown event type/)
+  })
+
   it('does not let an opaque end-seed clear an owned compaction', () => {
     const input = artifact([
       { type: 'compaction/start', data: { compactionId: 'owner', turn: null } },

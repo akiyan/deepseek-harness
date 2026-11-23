@@ -108,6 +108,8 @@ export interface TestSessionRemoteDefaults {
   readonly revealPath?: (path: string, signal: AbortSignal) => Promise<void>
   readonly canOpenPath?: () => boolean
   readonly listWorkSliceMs?: number
+  /** Complete Controller policy when the test supplies Loader-resolved references. */
+  readonly controllerConfig?: ConstructorParameters<typeof SessionController>[1]
 }
 
 const installed = new WeakMap<Context, SessionController>()
@@ -315,7 +317,7 @@ async function installControllers(
   try {
     controller = new TestController(
       ctx,
-      {
+      defaults.controllerConfig ?? {
         ...defaults.nativeOpen === undefined ? {} : { nativeOpen: defaults.nativeOpen },
         ...defaults.listWorkSliceMs === undefined ? {} : { listWorkSliceMs: defaults.listWorkSliceMs },
       },

@@ -10,6 +10,7 @@
  */
 
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConfigForm, ConfigFormSnapshot } from '../config-form-types.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotFactoryMap {
@@ -113,8 +114,58 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * layer and every registrant already depends on it for `ctx.configForms`.
      */
     'settings.general.item': { kind: 'list'; scope: 'root'; owner: SettingsGeneralItemOwnerProps }
+    /**
+     * One official plugin the Plugins page lists in its built-in settings
+     * group: `label` is the card's title and `order` its place. The page renders
+     * the entry as the card's one-liner (`view: 'summary'`) and, once the card
+     * is opened, as the body of the plugin's own page (`view: 'page'`). A
+     * bundle's configuration belongs in `plugins.bundle.config` or
+     * `plugins.row.config` instead.
+     */
+    'plugins.item': { kind: 'list'; scope: 'root'; owner: PluginConfigViewProps }
+    /**
+     * One Shiguredo-built-in plugin the Plugins page lists in its own settings
+     * group after the Experimental group: `label` is the card's title and
+     * `order` its place. The page renders the entry as the card's one-liner
+     * (`view: 'summary'`) and, once opened, as the body of its page
+     * (`view: 'page'`), exactly like `plugins.item`.
+     */
+    'plugins.shiguredo': { kind: 'list'; scope: 'root'; owner: PluginConfigViewProps }
+    /** One akiyan-built-in settings card (`summary`) and detail page (`page`) after the Shiguredo group. */
+    'plugins.akiyan': { kind: 'list'; scope: 'root'; owner: PluginConfigViewProps }
+    /**
+     * A bundle's own configuration, keyed by the bundle's package name and
+     * rendered on the bundle's page between its description and its rows
+     * (`view: 'page'` only).
+     */
+    'plugins.bundle.config': { kind: 'keyed'; scope: 'root'; owner: PluginConfigViewProps }
+    /**
+     * The configuration of one row a bundle declares, keyed by
+     * `<package name>#<row id>` with the row id as the bundle's patch declares
+     * it: the row on the bundle's page gains a configure control that opens
+     * the entry's page, headed by the plugin's display title and description.
+     * An absent description falls back to the entry's `view: 'summary'`.
+     */
+    'plugins.row.config': { kind: 'keyed'; scope: 'root'; owner: PluginConfigViewProps }
   }
 }
+
+/** The view the Plugins page asks a configuration entry for. */
+export interface PluginConfigViewProps {
+  /** `summary` renders the one-liner alone; `page` renders the setting and its controls. */
+  readonly view: 'summary' | 'page'
+  /** Host-owned configuration values and write actions when the entry key is a settings namespace. */
+  readonly form?: ConfigPageForm | undefined
+}
+
+/** Reactive page values and commands supplied by the configuration page owner. */
+export interface ConfigPageForm {
+  /** Accepted Host values; refreshed by the page owner. */
+  readonly state: ConfigFormSnapshot<Record<string, unknown>>
+  /** Submit all field edits together with the revision the editor read. */
+  readonly mutate: ConfigForm<Record<string, unknown>>['mutate']
+}
+
 /** Owner share of a General preference row (the section supplies nothing). */
 export interface SettingsGeneralItemOwnerProps {
   /** Marker field: item owner props are intentionally empty. */

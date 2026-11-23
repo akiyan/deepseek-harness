@@ -1853,6 +1853,30 @@ describe('alternate route dispatch', () => {
     expect(destination.calls).toEqual(['destination/served-model'])
   })
 
+  it('refuses an adapter substitution before preparing its destination when exact routing is required', async () => {
+    const { ctx, destination } = await harness({ provider: 'destination', model: 'served-model' })
+    try {
+      await expect(ctx.llm.prepareCall({ provider: 'requested', model: 'asked-model' }, undefined, undefined, { exactRoute: true }))
+        .rejects.toMatchObject({ code: 'INVALID_PREPARED_CALL' })
+      expect(destination.calls).toEqual([])
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('does not prepare an exact call for a model with internal routing windows', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    try {
+      const routing = { windows: [{ from: '09:00', to: '10:00', provider: 'alternate' }] }
+      ctx.llm.registerAdapter(['requested'], new CatalogAdapter({ id: 'requested', name: 'Requested' }, [], {}, {}, {}, {}, {
+        'asked-model': routing,
+      }))
+      const config = { provider: 'requested', model: 'asked-model' }
+      await expect(ctx.llm.prepareCall(config, undefined, undefined, { exactRoute: true }))
+        .rejects.toMatchObject({ code: 'INVALID_PREPARED_CALL' })
+      await expect(ctx.llm.prepareCall(config)).resolves.toMatchObject({ config })
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('dispatches a direct stream through the named route', async () => {
     const { ctx, destination } = await harness({ provider: 'destination', model: 'served-model' })
     await collect(ctx.llm.stream({ provider: 'requested', model: 'asked-model', messages: [] }))

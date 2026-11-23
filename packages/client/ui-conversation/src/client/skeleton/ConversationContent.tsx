@@ -160,6 +160,7 @@ export function ConversationContent(props: ConversationContentProps) {
   const inputBar = renderSlot('conversation.composer.bar', {
     variant: hero ? 'hero' : 'composer',
     occurrence: props.variant,
+    pendingInteraction: pendingInteraction !== undefined,
     ...(inert
       ? {
         disabled: true,

@@ -27,7 +27,9 @@
     "src/media-references.ts",
     "src/archived-session-gate.ts",
     "src/skill-catalog.ts",
-    "src/continuation.ts"
+    "src/continuation.ts",
+    "src/prompt-suggestion-turn.ts",
+    "src/prompt-suggestions.ts"
   ],
   "references": [
     {

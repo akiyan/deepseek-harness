@@ -892,6 +892,16 @@ type ConfigureCall = (
 ) => LlmCallControls
 ```
 
+不能接受自动切换路由的辅助调用在准备请求时设置 `exactRoute`。若适配器会替换路由，或模型声明了路由窗口，准备过程会在发送任何消息前拒绝请求。
+
+```ts type-equiv
+/** Dispatch policy for a registration-bound call. */
+interface LlmPrepareCallOptions {
+  /** Refuse adapter substitution or configured routing windows instead of dispatching through them. */
+  readonly exactRoute?: boolean
+}
+```
+
 ```ts type-equiv
 /**
  * Effective config fields supplied by exact-model adapter resolution rather
@@ -1044,6 +1054,8 @@ declare abstract class LlmAdapter {
    * Bind exact model metadata and the eventual request dispatch to one adapter generation.
    * Dynamic adapters override this so settings changes between preparation and
    * dispatch cannot combine one generation's capabilities with another's endpoint.
+   * Adapters with internal routing windows report them in the prepared model's
+   * `routing` metadata even when the requested route would currently run locally.
    * @param provider - registered provider route.
    * @param model - exact model id.
    * @param signal - cancellation for model resolution.
@@ -1247,9 +1259,11 @@ async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<Ll
  * @param config - provider/model route and optional concrete request controls.
  * @param signal - optional cancellation for adapter-owned capability lookup.
  * @param configure - pure control selection, called once before defaults and validation.
+ * @param options - omit to allow the adapter's configured routing; `exactRoute` refuses substitutions.
  * @returns a prepared config and its registration-bound stream entry point.
+ * @throws {LlmError} `INVALID_PREPARED_CALL` if an exact route is required but the model can be redirected.
  */
-async prepareCall( config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall, ): Promise<PreparedLlmCall>
+async prepareCall( config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall, options?: LlmPrepareCallOptions, ): Promise<PreparedLlmCall>
 
 /**
  * Stream one model call as raw chunks (token-level deltas). Replay state is

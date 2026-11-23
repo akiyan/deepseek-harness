@@ -2551,10 +2551,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a detached config only when a default must be materialized.',
       },
       {
-        signature: 'async prepareCall( config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall, ): Promise<PreparedLlmCall>',
+        signature: 'async prepareCall( config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall, options?: LlmPrepareCallOptions, ): Promise<PreparedLlmCall>',
         description: 'Resolve one call under its current adapter registration. The returned one-shot handle keeps that registration across header logging and dispatch, so HMR cannot combine one adapter\'s capability result with another adapter. An optional synchronous callback selects concrete controls using captured model metadata. Defaults and validation apply to its result. Callback failures and cancellation reject preparation before dispatch.',
-        parameters: [{ name: 'config', description: 'provider/model route and optional concrete request controls.' }, { name: 'signal', description: 'optional cancellation for adapter-owned capability lookup.' }, { name: 'configure', description: 'pure control selection, called once before defaults and validation.' }],
+        parameters: [{ name: 'config', description: 'provider/model route and optional concrete request controls.' }, { name: 'signal', description: 'optional cancellation for adapter-owned capability lookup.' }, { name: 'configure', description: 'pure control selection, called once before defaults and validation.' }, { name: 'options', description: 'omit to allow the adapter\'s configured routing; `exactRoute` refuses substitutions.' }],
         returns: 'a prepared config and its registration-bound stream entry point.',
+        throws: ['{LlmError} `INVALID_PREPARED_CALL` if an exact route is required but the model can be redirected.'],
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
@@ -3511,6 +3512,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Admit one prompt after explicitly resuming its Session.',
         parameters: [{ name: 'request', description: 'Session identity, prompt content, source metadata, and delivery mode.' }, { name: 'signal', description: 'caller cancellation before prompt admission begins.' }],
         returns: 'acknowledgement that the Agent accepted the prompt.',
+      },
+      {
+        signature: '@Remote(\'suggestPrompt\') async suggestPrompt(request: SessionSuggestPromptRequest, signal: AbortSignal): Promise<string | null>',
+        description: 'Request an optional editable draft for one freshly observed live turn. Only the owner may start generation.',
+        parameters: [{ name: 'request', description: 'Session identity and exact eligible `turn/end` sequence.' }, { name: 'signal', description: 'cancellation of this caller, independent of other waiters.' }],
+        returns: 'one bounded suggestion, or null if the turn is stale, generation is disabled, or the result is unusable.',
       },
       {
         signature: '@Remote(\'attachment\') attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue>',
@@ -8441,6 +8448,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmNativeAuth {\n    env: readonly string[];\n    oauth: boolean;\n}',
   },
   {
+    name: 'LlmPrepareCallOptions',
+    declaration: 'export interface LlmPrepareCallOptions {\n    readonly exactRoute?: boolean;\n}',
+  },
+  {
     name: 'LlmProviderInfo',
     declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n}',
   },
@@ -10415,6 +10426,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionStorageMetadata',
     declaration: 'export interface SessionStorageMetadata {\n    readonly meta: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n}',
+  },
+  {
+    name: 'SessionSuggestPromptRequest',
+    declaration: 'export interface SessionSuggestPromptRequest {\n    readonly sessionId: SessionId;\n    readonly turnEndSeq: SessionSeq;\n}',
   },
   {
     name: 'SessionSummary',

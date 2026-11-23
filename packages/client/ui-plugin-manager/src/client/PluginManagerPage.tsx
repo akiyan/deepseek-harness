@@ -44,14 +44,19 @@ import { BundleDetailSection } from './BundleDetailSection.tsx'
 import { ClientSyncNotice } from './ClientSyncNotice.tsx'
 import css from './PluginManagerPage.module.css'
 
+const SESSION_PUSH_PACKAGE = '@akiyan/dsh-session-web-push'
+const SESSION_PUSH_ITEM = 'session-web-push'
+
 /** Resolve an opened item card to its ledger entry and the group slot that renders it. */
-function itemEntry(id: string, ledger: ConfigLedger): { item: OfficialItem; slot: 'plugins.item' | 'plugins.shiguredo' } | undefined {
+function itemEntry(id: string, ledger: ConfigLedger): { item: OfficialItem; slot: 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan' } | undefined {
   const official = ledger.items.find(item => item.id === id)
   if (official !== undefined) return { item: official, slot: 'plugins.item' }
   const shiguredo = ledger.shiguredo.find(item => item.id === id)
-  /* v8 ignore next -- an item view id comes from a card in one of the two ledgers */
-  if (shiguredo === undefined) return undefined
-  return { item: shiguredo, slot: 'plugins.shiguredo' }
+  if (shiguredo !== undefined) return { item: shiguredo, slot: 'plugins.shiguredo' }
+  const akiyan = ledger.akiyan.find(item => item.id === id)
+  /* v8 ignore next -- item ids originate from registered cards */
+  if (akiyan === undefined) return undefined
+  return { item: akiyan, slot: 'plugins.akiyan' }
 }
 
 /** Full component props assembled by the main slot renderer. */
@@ -59,7 +64,7 @@ export type PluginManagerPageProps =
   PropsRuntime<'main'>
   & PropsLocale<'pluginManager'>
   & PropsRenderSlots<
-    | 'plugins.item' | 'plugins.shiguredo' | 'plugins.bundle.config' | 'plugins.row.config'
+    | 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan' | 'plugins.bundle.config' | 'plugins.row.config'
     | 'plugins.bundle.activation' | 'plugins.add.actions' | 'plugins.tab'
     | 'plugins.detail.actions' | 'plugins.detail.badge' | 'plugins.detail.section'
   >
@@ -630,7 +635,7 @@ function PackageCard({ pkg, t, resolveText, busy, highlighted, newer, onOpen, on
  */
 function ItemCard({ item, slot, t, onOpen, renderSlot }: {
   readonly item: OfficialItem
-  readonly slot: 'plugins.item' | 'plugins.shiguredo'
+  readonly slot: 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan'
   readonly t: Translate
   readonly onOpen: () => void
   readonly renderSlot: RenderConfig
@@ -667,7 +672,7 @@ function packageRef(pkg: PackageView): PluginPackageRef {
  */
 function ItemDetail({ item, slot, t, onBack, renderSlot, form }: {
   readonly item: OfficialItem
-  readonly slot: 'plugins.item' | 'plugins.shiguredo'
+  readonly slot: 'plugins.item' | 'plugins.shiguredo' | 'plugins.akiyan'
   readonly t: Translate
   readonly onBack: () => void
   readonly renderSlot: RenderConfig
@@ -758,7 +763,7 @@ function RowDetail({ pkg, row, t, resolveText, onBack, renderSlot, renderFactory
  * and configure controls, unless the Host reports an error and no rows; and where it comes from.
  */
 function PackageDetail({
-  pkg, t, resolveText, busy, rowBusy, configured, configure, sections, renderSlot, renderFactory, inMore, versions, detail,
+  pkg, t, resolveText, busy, rowBusy, configured, akiyanConfig, configure, sections, renderSlot, renderFactory, inMore, versions, detail,
   onBack, onSetEnabled, onUninstall, onUpdate, onSetRowEnabled, onEnsureVersions, onCheckVersions, onUpdateVersion,
 }: {
   readonly pkg: PackageView
@@ -773,6 +778,8 @@ function PackageDetail({
   readonly rowBusy: (row: PackageRow) => boolean
   /** Whether the bundle registered a configuration of its own. */
   readonly configured: boolean
+  /** The live akiyan configuration entry for this enabled bundle, if present. */
+  readonly akiyanConfig: string | undefined
   readonly configure: RowConfigure
   /**
    * The settings pages the bundle's own package registered, shown when the bundle has no configuration and no listed
@@ -856,6 +863,11 @@ function PackageDetail({
       {pkg.readOnlyReason === undefined ? null : <p className={css.reason} role="status">{managementText({ code: pkg.readOnlyReason }, t)}</p>}
       <div className={css.detailSections}>
         {detail}
+        {akiyanConfig === undefined ? null : (
+          <section className={css.detailSection} data-plugin-config>
+            {renderSlot('plugins.akiyan', { view: 'page' }, { only: akiyanConfig })}
+          </section>
+        )}
         {configured
           ? (
             <section className={css.detailSection} data-plugin-config>
@@ -1642,6 +1654,7 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
     && (pkg.listedByDefault !== false || pkg.enabled || pkg.installed || rowsRunning(pkg))
     && (pkg.installed || pkg.official || pkg.error !== undefined))
   const mine = listed.filter(pkg => !pkg.official)
+  const sessionPush = mine.find(pkg => pkg.name === SESSION_PUSH_PACKAGE)
   const official = listed.filter(pkg => pkg.official)
   // Both lists read one order over the eligible bundles: the main list holds the always-held ones plus the held-back
   // ones the profile enabled, and the More list holds the eligible ones, so enabling a bundle from the More list pins it
@@ -1715,7 +1728,12 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
   const shiguredoCards = ledger.shiguredo.map(item => (
     <ItemCard key={`shiguredo:${item.id}`} item={item} slot="plugins.shiguredo" t={t} renderSlot={renderSlot} onOpen={() => { setView({ kind: 'item', id: item.id }) }} />
   ))
-  const renderGroup = (id: 'basic' | 'extensions' | 'shiguredo' | 'bundles', heading: string, cards: readonly ReactNode[]): ReactNode => {
+  const akiyanCards = ledger.akiyan.filter(item => item.id !== SESSION_PUSH_ITEM).map(item => (
+    <ItemCard key={`akiyan:${item.id}`} item={item} slot="plugins.akiyan" t={t} renderSlot={renderSlot} onOpen={() => { setView({ kind: 'item', id: item.id }) }} />
+  ))
+  const akiyanPackages = sessionPush === undefined ? [] : [packageCard(sessionPush)]
+  const installedPackages = mine.filter(pkg => pkg !== sessionPush)
+  const renderGroup = (id: 'basic' | 'extensions' | 'shiguredo' | 'akiyan' | 'bundles', heading: string, cards: readonly ReactNode[]): ReactNode => {
     const offersMore = id === 'extensions' && more.length > 0
     if (cards.length === 0 && !offersMore) return null
     return (
@@ -1871,6 +1889,8 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
               busy={packageBusy(openPkg)}
               rowBusy={row => row.entryId !== undefined && state.busy.includes(rowKey(row.entryId))}
               configured={ledger.bundles.has(openPkg.name)}
+              akiyanConfig={openPkg === sessionPush && openPkg.enabled && ledger.akiyan.some(item => item.id === SESSION_PUSH_ITEM)
+                ? SESSION_PUSH_ITEM : undefined}
               configure={configure(openPkg)}
               sections={bundleSections(openPkg)}
               renderFactory={props.renderFactorySlot}
@@ -1913,7 +1933,8 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
                     {renderGroup('basic', t('basicTitle'), basicCards)}
                     {renderGroup('extensions', t('extensionsTitle'), extensions.map(packageCard))}
                     {renderGroup('shiguredo', t('shiguredoTitle'), shiguredoCards)}
-                    {renderGroup('bundles', t('bundlesTitle'), mine.map(packageCard))}
+                    {renderGroup('akiyan', t('akiyanTitle'), [...akiyanCards, ...akiyanPackages])}
+                    {renderGroup('bundles', t('bundlesTitle'), installedPackages.map(packageCard))}
                   </>
                 )}
                 {/* A failed package read trails the groups it left incomplete: right under the groups on a

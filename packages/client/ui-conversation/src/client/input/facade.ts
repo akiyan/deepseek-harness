@@ -10,7 +10,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
-import type { SessionEventLikeEntry, SessionEventSource, SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionEventSource, SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import {
   createSnapshotStore, type ObservableSnapshot, type SnapshotStore,
@@ -29,6 +29,7 @@ import type { InputSubmitMode, MessageSubmission, MessageSubmissionState } from 
 import type { ComposerBlock } from '../contract/composer-blocks.ts'
 import { serializeDraftPrompt } from './prompt.ts'
 import { SubmitMachine } from './machine.ts'
+import { loadedPrompts, promptIndex, type LoadedPrompt } from './prompt-history.ts'
 import { resolveDraftInput, snapshotDraft } from '../draft.ts'
 import { DraftEditorRuntime } from './editor/runtime.ts'
 import type { EditorProjection } from './editor/projection.ts'
@@ -56,8 +57,10 @@ export interface SessionInputDeps {
   popup?: (() => PopupDismissFace | undefined) | undefined
   /** Agent Inbox projection; its next-turn list is overlaid onto InputState.queue. */
   inbox?: ObservableSnapshot<InboxState | undefined> | undefined
-  /** Loaded Session event window whose human prompts the arrow keys recall; absent = no recall. */
+  /** Session event window whose human prompts the arrow keys recall; absent = no recall. */
   events?: SessionEventSource | undefined
+  /** Load and consume the next older page of that same window. */
+  loadOlder?: () => Promise<void>
   /**
    * Steer every still-pending queued message into the running turn, in FIFO
    * order (the empty-draft accelerated-Enter gesture); absent = unsupported.
@@ -134,32 +137,11 @@ function errorText(error: unknown): string {
 
 const EMPTY_QUEUE: InboxState['next-turn'] = []
 
-/** One recallable prompt; a run of consecutive identical prompts folds into one, spanning `oldest`..`newest`. */
-interface LoadedPrompt {
-  readonly text: string
-  readonly newest: SessionSeq
-  oldest: SessionSeq
-}
-
-/**
- * The recallable human prompts of a loaded event window, newest first:
- * their joined text blocks, skipping prompts without text and folding
- * consecutive repeats.
- * @param entries - the loaded window, oldest first.
- * @returns prompts newest first.
- */
-function loadedPrompts(entries: readonly SessionEventLikeEntry[]): readonly LoadedPrompt[] {
-  const prompts: LoadedPrompt[] = []
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index]
-    if (entry?.type !== 'event' || entry.event.type !== 'user/message' || entry.event.data.source.kind !== 'user') continue
-    const text = entry.event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
-    if (text.trim() === '') continue
-    const last = prompts.at(-1)
-    if (last?.text === text) last.oldest = entry.event.seq
-    else prompts.push({ text, newest: entry.event.seq, oldest: entry.event.seq })
-  }
-  return prompts
+interface PromptRecall {
+  readonly original: DraftSnapshot
+  /** Last selected prompt's log sequence; absent until the first step succeeds. */
+  seq?: SessionSeq
+  loading: boolean
 }
 
 /** Unavailable catalogs contain no named text references. */
@@ -208,6 +190,7 @@ export class SessionInputShell implements SessionInput {
   private draftSnapshotCache: { revision: number; value: DraftSnapshot } | undefined
   private attachmentIds: readonly DraftAttachmentId[] = []
   private disposed = false
+  private promptRecall: PromptRecall | undefined
   /** Conversation store writer for the current semantic document. */
   private persistDraft: ((draft: DraftSnapshot) => void) | undefined
   /** A restored draft's command token waiting for the trigger pipeline, with the revision its restore produced. */
@@ -217,14 +200,6 @@ export class SessionInputShell implements SessionInput {
   /** The mounted composer's file-picker opener (scoped pick-files event target). */
   private filePicker: Parameters<ComposerKeyboard['bindFilePicker']>[0] | undefined
   private readonly unsubscribeInbox: (() => void) | undefined
-  /**
-   * The log seq of the recalled prompt the draft shows and the draft revision
-   * that showed it. Neighbours are looked up by seq in the current window on
-   * every arrow, so prompts appended or loaded while browsing do not shift
-   * the position. Any later content change, including an undo, leaves the
-   * revisions unequal and ends browsing.
-   */
-  private recallPosition: { readonly seq: SessionSeq; readonly rev: number } | undefined
 
   constructor(private readonly deps: SessionInputDeps) {
     this.draftEditor = new DraftEditorRuntime({
@@ -250,6 +225,7 @@ export class SessionInputShell implements SessionInput {
     // with content so a snapshot-built span (apply.ts) stays CAS-valid across
     // caret motion and subscribers do not re-render per caret move.
     if (projectionContentChanged(prev, this.projection)) {
+      if (this.promptRecall?.seq === undefined) this.promptRecall = undefined
       this.rev += 1
       this.dispatchRun(({ type: 'draft-changed', command: this.projection.command }))
     }
@@ -270,11 +246,15 @@ export class SessionInputShell implements SessionInput {
    * @param text - plain text or the complete semantic document.
    */
   setDraft(text: DraftInput): void {
+    this.promptRecall = undefined
+    this.replaceDraft(text)
+  }
+
+  private replaceDraft(text: DraftInput, undoable = false): void {
     const draft = resolveDraftInput(text)
-    this.recallPosition = undefined
     this.cancelCommandRestore()
-    if (draft.references.length === 0 && (draft.quotes?.length ?? 0) === 0) this.draftEditor.setDraft(draft.text)
-    else this.draftEditor.restoreDraft(draft.text, draft.references, draft.quotes, { remove: this.deps.quoteRemoveLabel?.() ?? '' })
+    if (draft.references.length === 0 && (draft.quotes?.length ?? 0) === 0) this.draftEditor.setDraft(draft.text, undoable)
+    else this.draftEditor.restoreDraft(draft.text, draft.references, draft.quotes, { remove: this.deps.quoteRemoveLabel?.() ?? '' }, undoable)
     if (draft.command === undefined) return
     this.pendingCommand = { token: draft.command.token, rev: this.rev }
     this.restoreCommand()
@@ -345,7 +325,7 @@ export class SessionInputShell implements SessionInput {
 
   /** Persist the latest document without changing the editor or binding a writer. */
   persistCurrentDraft(): void {
-    this.persistDraft?.(this.draftSnapshot)
+    this.persistDraft?.(this.promptRecall?.original ?? this.draftSnapshot)
   }
 
   /**
@@ -534,33 +514,87 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Step through the human prompts in the loaded Session history as plain
-   * text. Browsing starts from an empty draft and continues only while the
-   * draft is the unedited prompt it last showed. Inside an editor update (a
-   * key command), the replacement runs in a microtask after that update.
+   * Check whether the composer is browsing prompts.
+   * @returns whether history is preserving the working draft.
+   */
+  isRecallingPrompt(): boolean {
+    return this.promptRecall !== undefined
+  }
+
+  /**
+   * Browse human prompts by log position without replacing the saved working draft.
    * @param direction - history direction.
-   * @returns whether an adjacent prompt exists and the replacement is scheduled.
+   * @returns whether the arrow handled a recall, a restore, or a page request.
    */
   recallHistory(direction: 'older' | 'newer'): boolean {
-    const phase = this.core.state.phase
-    if (this.disposed || (phase !== 'plain' && phase !== 'claimed')) return false
-    const prompts = loadedPrompts(this.deps.events?.getSnapshot().entries ?? [])
-    // -1 is the empty draft before the newest prompt.
-    let index = -1
-    const position = this.recallPosition?.rev === this.rev ? this.recallPosition : undefined
-    if (position !== undefined) index = prompts.findIndex(prompt => prompt.oldest <= position.seq && position.seq <= prompt.newest)
-    else if (this.projection.clipboardText !== '') return false
-    if (position !== undefined && index < 0) return false
-    index += direction === 'older' ? 1 : -1
-    if (index < -1 || index >= prompts.length) return false
-    const target = index < 0 ? undefined : prompts[index]
-    this.draftEditor.afterUpdate(() => {
-      // An undoable edit: undo returns to the draft shown before the step.
-      this.cancelCommandRestore()
-      this.draftEditor.setDraft(target?.text ?? '', true)
-      this.recallPosition = target === undefined ? undefined : { seq: target.newest, rev: this.rev }
-    })
+    const { events, loadOlder } = this.deps
+    if (this.disposed || frozen(this.core.state.phase) || events === undefined) return false
+    if (direction === 'newer' && this.promptRecall === undefined) return false
+    const window = events.getSnapshot()
+    const prompts = loadedPrompts(window.entries)
+    const seq = this.promptRecall?.seq
+    const index = seq === undefined ? -1 : promptIndex(prompts, seq)
+    if (direction === 'older' && seq !== undefined && index === -1) return false
+    const target = prompts[index + (direction === 'older' ? 1 : -1)]
+    const paginate = direction === 'older' && target === undefined
+    if (paginate && (!window.hasMore || loadOlder === undefined)) return false
+    const recall = this.promptRecall ??= { original: this.draftSnapshot, loading: false }
+    const revision = this.rev
+    const root = this.editor.getRootElement()
+    const current = (): boolean => this.promptRecall === recall && recall.seq === seq && this.rev === revision
+      && !this.disposed && !frozen(this.core.state.phase) && this.editor.getRootElement() === root
+      && !this.editor.isComposing() && root?.hasAttribute('data-composer-composing') !== true
+    if (paginate && loadOlder !== undefined) {
+      void this.loadEarlierPrompts(recall, events, loadOlder, current)
+    } else {
+      this.draftEditor.afterUpdate(() => {
+        if (current()) this.showRecalledPrompt(recall, target)
+      })
+    }
     return true
+  }
+
+  private showRecalledPrompt(recall: PromptRecall, target: LoadedPrompt | undefined): void {
+    if (target === undefined) {
+      this.promptRecall = undefined
+      this.replaceDraft(recall.original, true)
+    } else {
+      recall.seq = target.newest
+      this.replaceDraft(target.text, true)
+    }
+  }
+
+  private async loadEarlierPrompts(
+    recall: PromptRecall,
+    events: SessionEventSource,
+    loadOlder: () => Promise<void>,
+    current: () => boolean,
+  ): Promise<void> {
+    if (recall.loading) return
+    recall.loading = true
+    try {
+      let window = events.getSnapshot()
+      while (window.hasMore) {
+        const first = window.entries[0]?.event.seq
+        await loadOlder()
+        if (!current()) return
+        window = events.getSnapshot()
+        const prompts = loadedPrompts(window.entries)
+        const index = recall.seq === undefined ? -1 : promptIndex(prompts, recall.seq)
+        if (recall.seq !== undefined && index === -1) return
+        const target = prompts[index + 1]
+        if (target !== undefined) {
+          this.showRecalledPrompt(recall, target)
+          return
+        }
+        if (window.entries[0]?.event.seq === first) return
+      }
+    } catch (error) {
+      if (current()) this.notify('error', errorText(error))
+    } finally {
+      recall.loading = false
+      if (this.promptRecall === recall && recall.seq === undefined) this.promptRecall = undefined
+    }
   }
 
   /** Dismiss the popupSelect shell (any interaction outside the box). */
@@ -811,6 +845,11 @@ export class SessionInputShell implements SessionInput {
       return null
     })
     this.draftEditor.clearHistory()
+    const original = this.promptRecall?.original
+    if (original !== undefined) {
+      this.promptRecall = undefined
+      this.replaceDraft(original)
+    }
   }
 
   /**
@@ -971,7 +1010,7 @@ export class SessionInputShell implements SessionInput {
   private publish(): void {
     const next = this.compose()
     this.state.set(next)
-    const draft = this.draftSnapshot
+    const draft = this.promptRecall?.original ?? this.draftSnapshot
     if (draft !== this.lastPublishedDraft) {
       this.lastPublishedDraft = draft
       this.persistDraft?.(draft)

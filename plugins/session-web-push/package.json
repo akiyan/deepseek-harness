@@ -1,0 +1,19 @@
+{
+  "name": "@akiyan/dsh-session-web-push",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "immediately": true }
+  },
+  "files": ["index.js", "presence.js", "manual-tool.js", "notification-content.js", "delayed.js", "client.js", "worker.js", "cordis.patch.yml", "locale", "icon.svg", "README.zh.md"],
+  "dependencies": { "web-push": "3.6.7" },
+  "scripts": { "test": "node --test" }
+}

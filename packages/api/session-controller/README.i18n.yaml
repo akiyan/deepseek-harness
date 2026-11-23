@@ -24,14 +24,26 @@
   en: 954923654eebe2dc
   zh: 6bd9a7d2ea965aed
 /session-controller/configuration:
-  en: 8f62f7183c67fc02
-  zh: 0e2db400b376629f
+  en: 2379dfa58734e05a
+  zh: 7c5c924ae7c5704e
 /session-controller/model-experience:
-  en: 30b917bf822bb4df
-  zh: b0b023b5b526c317
-/session-controller/model-experience/kv-cache-effect:
-  en: 22fc0c9dbedd3bb6
-  zh: fad040ca55fd0e0a
+  en: 215e7ba838619b7b
+  zh: cc5aa3ddb9389ad5
+/session-controller/model-experience/automatic-next-message-suggestions:
+  en: 3c89a9480b1fb43a
+  zh: f14386519ef60da2
+/session-controller/model-experience/automatic-next-message-suggestions/what-the-model-sees:
+  en: 9475b6049f0cc9c9
+  zh: cd8bf24daf21d82f
+/session-controller/model-experience/automatic-next-message-suggestions/what-the-model-sees/system-prompt:
+  en: e97ff80dd6f763b4
+  zh: 91a088359a7fbc3e
+/session-controller/model-experience/automatic-next-message-suggestions/token-effect:
+  en: 811b50f0594361ce
+  zh: c15a90ecdba80815
+/session-controller/model-experience/automatic-next-message-suggestions/kv-cache-effect:
+  en: c25d7491c10047f6
+  zh: 353a7cecb4db759e
 /session-controller/known-limitations-and-deferred-work:
   en: 23bc3db43e84daa6
   zh: 0242338ac7bd24fa

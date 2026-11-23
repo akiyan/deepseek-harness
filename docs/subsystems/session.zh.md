@@ -852,6 +852,19 @@ interface PluginRecord {
 
 可选的 `application` 指定文件关联应用，不修改系统默认值；`workspacePathApplications({ path })` 在校验 Host 路径后返回当前关联应用、名称、图标和默认项。
 
+## 下一条消息的建议请求
+
+`session/suggestPrompt` 指定在线会话中一个已完成的轮次。它不激活 Agent，也不接收会话输入。返回值为候选文本或 null，不是会话事件。资格、请求输入与辅助审计行为见 [Session Controller 文档](../../packages/api/session-controller/README.zh.md#automatic-next-message-suggestions)。
+
+```ts type-equiv
+/** Request a suggestion for a newly observed completed turn in a live Session. */
+interface SessionSuggestPromptRequest {
+  readonly sessionId: SessionId
+  /** Exact `turn/end` sequence just observed by the caller. */
+  readonly turnEndSeq: SessionSeq
+}
+```
+
 ## Session 日志上传排除条件
 
 `ctx.sessionLogDeepSeek.registerExclusion()` 注册归调用方所有的判断函数，输入为 `SessionLogUploadRequest`。任意条件匹配时，在读取 Session 事件前省略日志贡献与接受回调。没有条件匹配时保留普通上传资格判断。[包 README](../../packages/session/session-log-deepseek/README.zh.md#upload-exclusions) 定义失败与释放行为。
@@ -994,6 +1007,14 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  * @returns acknowledgement that the Agent accepted the prompt.
  */
 @Remote('prompt') async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
+
+/**
+ * Request an optional editable draft for one freshly observed live turn. Only the owner may start generation.
+ * @param request - Session identity and exact eligible `turn/end` sequence.
+ * @param signal - cancellation of this caller, independent of other waiters.
+ * @returns one bounded suggestion, or null if the turn is stale, generation is disabled, or the result is unusable.
+ */
+@Remote('suggestPrompt') async suggestPrompt(request: SessionSuggestPromptRequest, signal: AbortSignal): Promise<string | null>
 
 /**
  * Read one image from the attachment store after gateway authorization.

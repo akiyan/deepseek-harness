@@ -50,6 +50,14 @@
   - listitem:
     - button "查看 Git 推送防护": Git 推送防护
     - text: 在 Git 推送执行前请求确认。
+- heading "akiyan内置插件设置" [level=3]
+- list:
+  - listitem:
+    - button "查看 Exa 搜索设置": Exa 搜索设置
+    - text: 通过匿名 MCP 或 API 密钥使用 Exa 搜索。
+  - listitem:
+    - button "查看 建议下一条消息": 建议下一条消息
+    - text: 回复结束后，在输入框中显示下一条消息的建议
 - heading "已安装插件" [level=3]
 - list:
   - listitem:

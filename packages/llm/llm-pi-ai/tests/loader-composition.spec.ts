@@ -40,8 +40,8 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-/** Boot the dormant composition: a bare `llm-pi-ai` row with no config at all. */
-async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }> {
+/** Boot the dormant route composition, optionally enabling upstream ChatGPT login. */
+async function loadComposition(chatGptSignIn = false): Promise<{ ctx: Context; settingsPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-pi-composition-'))
   await writeFile(join(root, '.credentials.yaml'), 'version: 1\nrefs:\n  PI_COMPOSITION_KEY: key-from-store\n', { mode: 0o600 })
 
@@ -58,6 +58,7 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
     "  name: '@deepseek-ai/dsh-authorization'",
     '- id: llm-pi-ai',
     "  name: '@deepseek-ai/dsh-llm-pi-ai'",
+    ...chatGptSignIn ? ['  config:', '    chatGptSignIn: true'] : [],
     '',
   ].join('\n'))
 
@@ -90,6 +91,22 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
 }
 
 describe('llm-pi-ai real dormant composition', () => {
+  it('keeps the ChatGPT plan flow and OpenAI API-key flow separate in the YAML composition', async () => {
+    const { ctx } = await loadComposition(true)
+    expect(ctx.authorization.describe(recordKeyFor('openai-codex'))?.methods).toEqual([
+      { id: 'oauth', label: 'OpenAI (ChatGPT plan)' },
+    ])
+    expect(ctx.authorization.describe(recordKeyFor('openai'))?.methods.map(method => method.id)).toEqual(['oauth', 'api-key'])
+    await ctx.credentials.modifyRecord(recordKeyFor('openai'), async () => ({ kind: 'api-key', key: 'test-api-key' }))
+    await ctx.credentials.modifyRecord(recordKeyFor('openai-codex'), async () => ({
+      kind: 'grant', payload: { type: 'oauth', access: 'test-access', refresh: 'test-refresh', expires: 1 },
+    }))
+    await ctx.credentials.deleteRecord(recordKeyFor('openai-codex'))
+    expect(await ctx.credentials.readRecord(recordKeyFor('openai'))).toEqual({ kind: 'api-key', key: 'test-api-key' })
+    expect(ctx.llm.listConfigurableProviders().map(entry => entry.provider)).toContain('sakura-ai-engine')
+    expect(ctx.llm.listConfigurableProviders().map(entry => entry.provider)).not.toContain('chatgpt')
+  })
+
   it('dispatches header contributors through the Loader-mounted adapter', async () => {
     const server = await mockServer([{ events: textEvents }])
     const { ctx, settingsPath } = await loadComposition()

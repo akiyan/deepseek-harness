@@ -127,6 +127,8 @@ export function SettingsSecretField(props: Pick<SettingsFieldProps, 'id' | 'labe
   configured: boolean
   /** Copy describing the configured state. */
   stateLabel: string
+  /** Mask an API token without presenting a login password to password managers. */
+  avoidPasswordManager?: boolean
 }) {
   return (
     <div className={css.field}>
@@ -138,9 +140,14 @@ export function SettingsSecretField(props: Pick<SettingsFieldProps, 'id' | 'labe
       </div>
       <input
         id={props.id}
-        className={css.input}
-        type="password"
-        autoComplete="new-password"
+        className={props.avoidPasswordManager ? `${css.input} ${css.maskedSecret}` : css.input}
+        type={props.avoidPasswordManager ? 'text' : 'password'}
+        autoComplete={props.avoidPasswordManager ? 'off' : 'new-password'}
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+        data-1p-ignore={props.avoidPasswordManager || undefined}
+        data-lpignore={props.avoidPasswordManager || undefined}
         value={props.text}
         disabled={props.disabled}
         onChange={(event) => { props.onEdit(event.target.value) }}

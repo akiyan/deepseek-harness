@@ -1,0 +1,3 @@
+- insert:
+    - id: fixture-session-web-push
+      name: '@akiyan/dsh-session-web-push'
